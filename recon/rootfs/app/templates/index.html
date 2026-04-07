@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recon – Network Scanner</title>
+<style>
+  :root {
+    --ha-bg:          #111111;
+    --ha-card:        #1c1c1e;
+    --ha-card2:       #2c2c2e;
+    --ha-border:      #3a3a3c;
+    --ha-accent:      #03a9f4;
+    --ha-accent-dark: #0288d1;
+    --ha-success:     #4caf50;
+    --ha-warning:     #ff9800;
+    --ha-error:       #f44336;
+    --ha-text:        #e1e1e1;
+    --ha-text-dim:    #9e9e9e;
+    --ha-header:      #1a1a1a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--ha-bg); color: var(--ha-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; }
+
+  /* ── Header ── */
+  .ha-header {
+    background: var(--ha-header); border-bottom: 1px solid var(--ha-border);
+    padding: 0 16px; height: 56px; display: flex; align-items: center; gap: 12px;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .ha-header-icon { font-size: 22px; }
+  .ha-header h1 { font-size: 20px; font-weight: 500; letter-spacing: 0.3px; }
+  .ha-header-badges { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ha-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--ha-card2);
+    border: 1px solid var(--ha-border); border-radius: 16px; padding: 3px 10px; font-size: 12px; color: var(--ha-text-dim); }
+  .ha-chip.ok   { color: var(--ha-success); border-color: var(--ha-success); }
+  .ha-chip.warn { color: var(--ha-warning); border-color: var(--ha-warning); }
+  .ha-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+  /* ── Main ── */
+  .ha-main { padding: 16px; display: flex; flex-direction: column; gap: 12px; height: calc(100vh - 56px); }
+
+  /* ── Tabs ── */
+  .ha-tabs { display: flex; background: var(--ha-card); border: 1px solid var(--ha-border);
+    border-radius: 10px; padding: 4px; width: fit-content; flex-shrink: 0; }
+  .ha-tab { padding: 8px 20px; border-radius: 7px; border: none; background: transparent;
+    color: var(--ha-text-dim); font-size: 13px; font-weight: 500; cursor: pointer;
+    transition: all 0.18s; display: flex; align-items: center; gap: 7px; }
+  .ha-tab:hover { color: var(--ha-text); }
+  .ha-tab.active { background: var(--ha-accent); color: #fff; }
+
+  /* ── Panels ── */
+  .ha-panel { display: none; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
+  .ha-panel.active { display: flex; }
+
+  /* ── Config card ── */
+  .ha-card { background: var(--ha-card); border: 1px solid var(--ha-border);
+    border-radius: 12px; padding: 16px; flex-shrink: 0; }
+  .ha-card-title { font-size: 12px; font-weight: 600; color: var(--ha-text-dim);
+    text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 14px; }
+  .ha-form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .ha-form-group { display: flex; flex-direction: column; gap: 5px; }
+  .ha-label { font-size: 12px; color: var(--ha-text-dim); font-weight: 500; }
+  .ha-input, .ha-select { background: var(--ha-card2); border: 1px solid var(--ha-border);
+    border-radius: 8px; color: var(--ha-text); font-size: 14px; padding: 9px 12px;
+    outline: none; transition: border-color 0.15s; height: 38px; }
+  .ha-input { min-width: 240px; }
+  .ha-select { min-width: 200px; cursor: pointer; }
+  .ha-input:focus, .ha-select:focus { border-color: var(--ha-accent); }
+  .ha-select option { background: var(--ha-card2); }
+  .ha-btn { height: 38px; padding: 0 18px; border-radius: 8px; border: none;
+    font-size: 14px; font-weight: 500; cursor: pointer; display: inline-flex;
+    align-items: center; gap: 7px; transition: all 0.15s; white-space: nowrap; }
+  .ha-btn-primary { background: var(--ha-accent); color: #fff; }
+  .ha-btn-primary:hover { background: var(--ha-accent-dark); }
+  .ha-btn-danger  { background: var(--ha-error); color: #fff; }
+  .ha-btn-danger:hover { background: #c62828; }
+  .ha-btn-ghost   { background: var(--ha-card2); color: var(--ha-text-dim); border: 1px solid var(--ha-border); }
+  .ha-btn-ghost:hover { color: var(--ha-text); }
+  .ha-info-strip { background: rgba(3,169,244,0.07); border: 1px solid rgba(3,169,244,0.22);
+    border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--ha-text-dim);
+    line-height: 1.65; margin-top: 12px; }
+  .ha-info-strip code { background: var(--ha-card2); padding: 1px 5px; border-radius: 4px;
+    font-size: 11px; color: var(--ha-accent); }
+
+  /* ── Split output area ── */
+  .split-area { display: flex; gap: 12px; flex: 1; min-height: 0; }
+
+  /* ── Terminal ── */
+  .ha-terminal-card { background: var(--ha-card); border: 1px solid var(--ha-border);
+    border-radius: 12px; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+  .ha-terminal-topbar { display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; border-bottom: 1px solid var(--ha-border); background: var(--ha-card2);
+    border-radius: 12px 12px 0 0; flex-shrink: 0; }
+  .ha-terminal-title { display: flex; align-items: center; gap: 8px; font-size: 13px;
+    font-weight: 500; color: var(--ha-text-dim); }
+  .ha-scanning-dot { display: none; align-items: center; gap: 6px; font-size: 12px; color: var(--ha-accent); }
+  .ha-scanning-dot.active { display: flex; }
+  .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ha-accent);
+    animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity:0.3; transform:scale(0.85); } 50% { opacity:1; transform:scale(1.15); } }
+  .ha-terminal-body { flex: 1; overflow-y: auto; padding: 14px 16px;
+    font-family: "SF Mono","Fira Code","Cascadia Code",Consolas,monospace;
+    font-size: 12.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-all;
+    background: #0d0d0d; color: #c8d0d8; }
+  .tl       { display: block; }
+  .tl-info  { color: var(--ha-accent); }
+  .tl-ok    { color: var(--ha-success); }
+  .tl-warn  { color: var(--ha-warning); }
+  .tl-error { color: var(--ha-error); }
+  .tl-dim   { color: #555; }
+  .tl-open  { color: #80cbc4; font-weight: 600; }
+  .ha-terminal-body::-webkit-scrollbar { width: 5px; }
+  .ha-terminal-body::-webkit-scrollbar-thumb { background: var(--ha-border); border-radius: 3px; }
+
+  /* ── Results panel (right) ── */
+  .results-panel { width: 340px; flex-shrink: 0; display: flex; flex-direction: column;
+    gap: 10px; overflow-y: auto; }
+  .results-panel::-webkit-scrollbar { width: 5px; }
+  .results-panel::-webkit-scrollbar-thumb { background: var(--ha-border); border-radius: 3px; }
+
+  .res-card { background: var(--ha-card); border: 1px solid var(--ha-border);
+    border-radius: 10px; padding: 14px; flex-shrink: 0; }
+  .res-card-title { font-size: 11px; font-weight: 600; color: var(--ha-text-dim);
+    text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 6px; }
+
+  /* Host info rows */
+  .res-row { display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 5px 0; border-bottom: 1px solid var(--ha-border); gap: 8px; }
+  .res-row:last-child { border-bottom: none; }
+  .res-key { font-size: 12px; color: var(--ha-text-dim); white-space: nowrap; flex-shrink: 0; }
+  .res-val { font-size: 12px; color: var(--ha-text); text-align: right; word-break: break-word; }
+  .res-val.ok    { color: var(--ha-success); font-weight: 600; }
+  .res-val.warn  { color: var(--ha-warning); }
+  .res-val.error { color: var(--ha-error); }
+
+  /* Ports table */
+  .ports-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .ports-table th { text-align: left; color: var(--ha-text-dim); font-weight: 600;
+    font-size: 11px; padding: 4px 6px; border-bottom: 1px solid var(--ha-border); }
+  .ports-table td { padding: 6px 6px; border-bottom: 1px solid rgba(58,58,60,0.5); vertical-align: top; }
+  .ports-table tr:last-child td { border-bottom: none; }
+  .port-num { color: var(--ha-accent); font-family: monospace; font-weight: 600; }
+  .port-open { color: var(--ha-success); font-weight: 600; }
+  .port-service { color: var(--ha-text); }
+  .port-version { color: var(--ha-text-dim); font-size: 11px; }
+
+  /* Empty / placeholder state */
+  .res-placeholder { display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 10px; height: 100%; min-height: 120px;
+    color: var(--ha-text-dim); font-size: 13px; opacity: 0.5; text-align: center; }
+  .res-placeholder .icon { font-size: 32px; opacity: 0.4; }
+
+  /* WLAN network cards */
+  .wlan-net { background: var(--ha-card2); border: 1px solid var(--ha-border);
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .wlan-net:last-child { margin-bottom: 0; }
+  .wlan-ssid { font-size: 14px; font-weight: 600; color: var(--ha-text); margin-bottom: 6px;
+    display: flex; align-items: center; gap: 8px; }
+  .wlan-enc { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+  .wlan-enc.wpa2 { background: rgba(76,175,80,0.15); color: var(--ha-success); }
+  .wlan-enc.wpa3 { background: rgba(3,169,244,0.15); color: var(--ha-accent); }
+  .wlan-enc.open { background: rgba(244,67,54,0.15); color: var(--ha-error); }
+  .wlan-enc.wpa  { background: rgba(255,152,0,0.15); color: var(--ha-warning); }
+  .wlan-meta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .wlan-meta span { font-size: 11px; color: var(--ha-text-dim); }
+  .wlan-meta .val { color: var(--ha-text); }
+
+  /* Signal bar */
+  .signal-bar { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: middle; }
+  .signal-bar .b { width: 4px; background: var(--ha-border); border-radius: 1px; }
+  .signal-bar .b.active { background: var(--ha-success); }
+  .signal-bar .b:nth-child(1) { height: 4px; }
+  .signal-bar .b:nth-child(2) { height: 7px; }
+  .signal-bar .b:nth-child(3) { height: 10px; }
+  .signal-bar .b:nth-child(4) { height: 14px; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="ha-header">
+  <span class="ha-header-icon">📡</span>
+  <h1>Recon</h1>
+  <div class="ha-header-badges">
+    <span class="ha-chip {{ 'ok' if has_nmap else 'warn' }}"><span class="dot"></span>nmap</span>
+    <span class="ha-chip {{ 'ok' if has_iw else 'warn' }}"><span class="dot"></span>iw</span>
+    <span class="ha-chip {{ 'ok' if has_airodump else 'warn' }}"><span class="dot"></span>airodump</span>
+  </div>
+</div>
+
+<div class="ha-main">
+
+  <div class="ha-tabs">
+    <button class="ha-tab active" onclick="switchTab('ip',this)">🔍 IP / Port Scanner</button>
+    <button class="ha-tab" onclick="switchTab('wlan',this)">📶 WLAN Scanner</button>
+  </div>
+
+  <!-- ══ IP SCANNER ══ -->
+  <div id="tab-ip" class="ha-panel active">
+
+    <div class="ha-card">
+      <div class="ha-card-title">Scan-Konfiguration</div>
+      <div class="ha-form-row">
+        <div class="ha-form-group">
+          <label class="ha-label">Ziel (IP / Hostname / CIDR)</label>
+          <input class="ha-input" id="ip-target" type="text"
+            placeholder="192.168.1.1  oder  10.0.0.0/24" style="min-width:280px"
+            onkeydown="if(event.key==='Enter') startIpScan()" />
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">Scanner</label>
+          <select class="ha-select" id="ip-scanner" onchange="onScannerChange()">
+            <option value="rustscan">⚡ Fast Scan (alle 65k Ports)</option>
+            <option value="nmap">🗺 Nmap</option>
+          </select>
+        </div>
+        <div class="ha-form-group" id="profile-group">
+          <label class="ha-label">Nmap-Profil</label>
+          <select class="ha-select" id="ip-profile">
+            <option value="quick">Quick  (-F, Top 100 Ports)</option>
+            <option value="fast">Fast  (-p- --min-rate 5000)</option>
+            <option value="service">Service Detection  (-sV -sC)</option>
+            <option value="full">Full Portscan  (-p-)</option>
+            <option value="os">OS Detection  (-O -sV)</option>
+            <option value="stealth">Stealth  (-sS -T2)</option>
+          </select>
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="ha-btn ha-btn-primary" id="ip-start-btn" onclick="startIpScan()">▶ Starten</button>
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="ha-btn ha-btn-danger" id="ip-stop-btn" style="display:none" onclick="stopScan('ip')">■ Stop</button>
+        </div>
+      </div>
+      <div id="rustscan-info" class="ha-info-strip" style="display:none">
+        ⚡ <strong>Fast Scan</strong> scannt alle 65 535 Ports mit hoher Rate (<code>--min-rate 5000</code>). Das Nmap-Profil wird ignoriert.
+      </div>
+    </div>
+
+    <!-- Split output area -->
+    <div class="split-area">
+
+      <!-- Left: raw terminal -->
+      <div class="ha-terminal-card">
+        <div class="ha-terminal-topbar">
+          <div class="ha-terminal-title">
+            ⬡ Raw Output
+            <div class="ha-scanning-dot" id="ip-scanning">
+              <div class="pulse-dot"></div> Scanning…
+            </div>
+          </div>
+          <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+            onclick="clearAll()">Leeren</button>
+        </div>
+        <div class="ha-terminal-body" id="ip-output"><span class="tl tl-dim">Bereit — Ziel eingeben und Scan starten.</span>
+</div>
+      </div>
+
+      <!-- Right: parsed results -->
+      <div class="results-panel" id="ip-results">
+        <div class="res-card" style="flex:1;display:flex;align-items:center;justify-content:center">
+          <div class="res-placeholder">
+            <div class="icon">🔎</div>
+            <div>Scan-Ergebnisse<br>erscheinen hier</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ WLAN SCANNER ══ -->
+  <div id="tab-wlan" class="ha-panel">
+
+    <div class="ha-card">
+      <div class="ha-card-title">WLAN-Konfiguration</div>
+      <div class="ha-form-row">
+        <div class="ha-form-group">
+          <label class="ha-label">Interface</label>
+          <input class="ha-input" id="wlan-iface" type="text" placeholder="wlan0" style="min-width:140px" />
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">Tool</label>
+          <select class="ha-select" id="wlan-tool">
+            {% if has_iw %}<option value="iw">iw scan</option>{% endif %}
+            {% if has_iwlist %}<option value="iwlist">iwlist scanning</option>{% endif %}
+            {% if has_airodump %}<option value="airodump" id="opt-airodump">airodump-ng</option>{% endif %}
+          </select>
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="ha-btn ha-btn-primary" id="wlan-start-btn" onclick="startWlanScan()">▶ Starten</button>
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="ha-btn ha-btn-danger" id="wlan-stop-btn" style="display:none" onclick="stopScan('wlan')">■ Stop</button>
+        </div>
+      </div>
+      <div class="ha-info-strip">
+        <code>iw</code> / <code>iwlist</code>: integrierter Raspberry Pi Adapter.
+        <code>airodump-ng</code> benötigt externen Monitor-Mode-Adapter (z.B. <strong>Alfa AWUS036ACS</strong>).
+      </div>
+    </div>
+
+    <div class="split-area">
+      <div class="ha-terminal-card">
+        <div class="ha-terminal-topbar">
+          <div class="ha-terminal-title">
+            ◈ Raw Output
+            <div class="ha-scanning-dot" id="wlan-scanning">
+              <div class="pulse-dot"></div> Scanning…
+            </div>
+          </div>
+          <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+            onclick="clearWlan()">Leeren</button>
+        </div>
+        <div class="ha-terminal-body" id="wlan-output"><span class="tl tl-dim">Bereit — Interface wählen und Scan starten.</span>
+</div>
+      </div>
+
+      <div class="results-panel" id="wlan-results">
+        <div class="res-card" style="flex:1;display:flex;align-items:center;justify-content:center">
+          <div class="res-placeholder">
+            <div class="icon">📶</div>
+            <div>WLAN-Netzwerke<br>erscheinen hier</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const BASE = "{{ ingress_path }}";
+const streams = {};
+
+// ── Tab switching ──────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.ha-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.ha-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
+
+// ── Terminal helpers ───────────────────────────────────────────
+function appendLine(id, text, cls) {
+  const body = document.getElementById(id + '-output');
+  const span = document.createElement('span');
+  span.className = 'tl' + (cls ? ' ' + cls : '');
+  span.textContent = text;
+  body.appendChild(span);
+  body.appendChild(document.createTextNode('\n'));
+  body.scrollTop = body.scrollHeight;
+}
+
+function clearAll() {
+  document.getElementById('ip-output').innerHTML = '';
+  document.getElementById('ip-results').innerHTML = `
+    <div class="res-card" style="flex:1;display:flex;align-items:center;justify-content:center">
+      <div class="res-placeholder"><div class="icon">🔎</div><div>Scan-Ergebnisse<br>erscheinen hier</div></div>
+    </div>`;
+}
+
+function clearWlan() {
+  document.getElementById('wlan-output').innerHTML = '';
+  document.getElementById('wlan-results').innerHTML = `
+    <div class="res-card" style="flex:1;display:flex;align-items:center;justify-content:center">
+      <div class="res-placeholder"><div class="icon">📶</div><div>WLAN-Netzwerke<br>erscheinen hier</div></div>
+    </div>`;
+}
+
+function setScanning(id, active) {
+  document.getElementById(id + '-scanning').classList.toggle('active', active);
+  document.getElementById(id + '-start-btn').style.display = active ? 'none' : '';
+  document.getElementById(id + '-stop-btn').style.display  = active ? '' : 'none';
+}
+
+function stopScan(id) {
+  if (streams[id]) { streams[id].close(); delete streams[id]; }
+  setScanning(id, false);
+  appendLine(id, '[Scan abgebrochen]', 'tl-warn');
+}
+
+// ── SSE stream ────────────────────────────────────────────────
+function startStream(id, path, onLine, onDone) {
+  if (streams[id]) streams[id].close();
+  setScanning(id, true);
+
+  const es = new EventSource(BASE + path);
+  streams[id] = es;
+  const lines = [];
+
+  es.onmessage = (e) => {
+    const text = e.data;
+    if (!text) return;
+
+    let cls = '';
+    if      (text.startsWith('[DONE]'))                        cls = 'tl-ok';
+    else if (text.startsWith('[ERROR]'))                       cls = 'tl-error';
+    else if (/\bopen\b/i.test(text))                          cls = 'tl-open';
+    else if (/\bup\b|\bfound\b|\bhost\b|\bssh\b|\bhttp\b/i.test(text)) cls = 'tl-info';
+    else if (/warning|warn/i.test(text))                      cls = 'tl-warn';
+    appendLine(id, text, cls);
+    lines.push(text);
+
+    if (onLine) onLine(text);
+
+    if (text.startsWith('[DONE]') || text.startsWith('[ERROR]')) {
+      es.close(); delete streams[id];
+      setScanning(id, false);
+      if (onDone) onDone(lines);
+    }
+  };
+
+  es.onerror = () => {
+    appendLine(id, '[Verbindungsfehler zum Backend]', 'tl-error');
+    es.close(); delete streams[id];
+    setScanning(id, false);
+  };
+}
+
+// ══════════════════════════════════════════════════════════════
+// ── NMAP PARSER ───────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+
+const nmapState = { hosts: [] };
+
+function nmapParseLines(lines) {
+  const hosts = [];
+  let current = null;
+
+  for (const line of lines) {
+    // New host
+    const hostMatch = line.match(/Nmap scan report for (.+)/);
+    if (hostMatch) {
+      if (current) hosts.push(current);
+      current = { target: hostMatch[1].trim(), status: '', latency: '', mac: '', vendor: '',
+                  os: '', osDetail: '', deviceType: '', ports: [], duration: '', warnings: [] };
+      continue;
+    }
+    if (!current) continue;
+
+    // Status
+    const statusMatch = line.match(/Host is (\w+)\s*\(([^)]+)\)/);
+    if (statusMatch) { current.status = statusMatch[1]; current.latency = statusMatch[2]; continue; }
+
+    // Open port
+    const portMatch = line.match(/^(\d+)\/(tcp|udp)\s+(\w+)\s+(\S+)\s*(.*)/);
+    if (portMatch) {
+      current.ports.push({
+        port: portMatch[1], proto: portMatch[2], state: portMatch[3],
+        service: portMatch[4], version: portMatch[5].trim()
+      });
+      continue;
+    }
+
+    // MAC
+    const macMatch = line.match(/MAC Address: ([0-9A-F:]+)\s*\(([^)]*)\)/i);
+    if (macMatch) { current.mac = macMatch[1]; current.vendor = macMatch[2]; continue; }
+
+    // OS details
+    const osMatch = line.match(/OS details?: (.+)/i);
+    if (osMatch) { current.osDetail = osMatch[1].split(',')[0].trim(); continue; }
+
+    // Running OS
+    const runMatch = line.match(/Running(?: \(JUST GUESSING\))?:\s*(.+)/i);
+    if (runMatch && !current.osDetail) { current.os = runMatch[1].split(',')[0].trim(); continue; }
+
+    // Device type
+    const devMatch = line.match(/Device type: (.+)/i);
+    if (devMatch) { current.deviceType = devMatch[1].trim(); continue; }
+
+    // Duration
+    const doneMatch = line.match(/Nmap done.+scanned in ([\d.]+) seconds/i);
+    if (doneMatch) {
+      const secs = parseFloat(doneMatch[1]);
+      if (current) current.duration = secs >= 60
+        ? `${Math.floor(secs/60)}m ${Math.round(secs%60)}s`
+        : `${secs.toFixed(1)}s`;
+    }
+  }
+  if (current) hosts.push(current);
+  return hosts;
+}
+
+function renderNmapResults(lines) {
+  const hosts = nmapParseLines(lines);
+  const panel = document.getElementById('ip-results');
+
+  if (!hosts.length || !hosts[0].target) {
+    panel.innerHTML = `<div class="res-card"><div class="res-placeholder"><div class="icon">⚠️</div><div>Keine Hosts gefunden</div></div></div>`;
+    return;
+  }
+
+  let html = '';
+
+  for (const h of hosts) {
+    const osLabel = h.osDetail || h.os || '–';
+    const statusClass = h.status === 'up' ? 'ok' : 'error';
+
+    // Host info card
+    html += `<div class="res-card">
+      <div class="res-card-title">🖥 Host</div>`;
+
+    const rows = [
+      ['Ziel',      h.target],
+      ['Status',    h.status || '–', statusClass],
+      ['Latenz',    h.latency || '–'],
+      h.mac    ? ['MAC',   h.mac] : null,
+      h.vendor ? ['Hersteller', h.vendor] : null,
+      h.deviceType ? ['Gerätetyp', h.deviceType] : null,
+      osLabel !== '–' ? ['OS', osLabel] : null,
+      h.duration ? ['Scan-Dauer', h.duration] : null,
+    ].filter(Boolean);
+
+    for (const [k, v, cls] of rows) {
+      html += `<div class="res-row">
+        <span class="res-key">${k}</span>
+        <span class="res-val ${cls||''}">${v}</span>
+      </div>`;
+    }
+    html += `</div>`;
+
+    // Ports card
+    const openPorts = h.ports.filter(p => p.state === 'open');
+    if (openPorts.length) {
+      html += `<div class="res-card">
+        <div class="res-card-title">🔓 Offene Ports <span style="color:var(--ha-accent);margin-left:6px">${openPorts.length}</span></div>
+        <table class="ports-table">
+          <thead><tr><th>Port</th><th>Service</th><th>Version</th></tr></thead>
+          <tbody>`;
+      for (const p of openPorts) {
+        const ver = p.version && p.version !== '' ? p.version : '–';
+        html += `<tr>
+          <td><span class="port-num">${p.port}</span><span style="color:var(--ha-text-dim);font-size:10px">/${p.proto}</span></td>
+          <td class="port-service">${p.service}</td>
+          <td class="port-version">${ver}</td>
+        </tr>`;
+      }
+      html += `</tbody></table></div>`;
+    } else if (h.status === 'up') {
+      html += `<div class="res-card"><div class="res-placeholder" style="min-height:60px">
+        <div>Keine offenen Ports gefunden</div></div></div>`;
+    }
+  }
+
+  panel.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════
+// ── WLAN PARSER ───────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+
+function wlanParseIw(lines) {
+  const nets = [];
+  let cur = null;
+
+  for (const line of lines) {
+    if (line.match(/^BSS [0-9a-f:]{17}/i)) {
+      if (cur) nets.push(cur);
+      const bssMatch = line.match(/BSS ([0-9a-f:]{17})/i);
+      cur = { bssid: bssMatch ? bssMatch[1] : '?', ssid: '', signal: '', freq: '', channel: '', enc: 'open' };
+      continue;
+    }
+    if (!cur) continue;
+    const ssidM  = line.match(/SSID: (.+)/);          if (ssidM)  cur.ssid    = ssidM[1].trim();
+    const sigM   = line.match(/signal: ([-\d.]+)/);   if (sigM)   cur.signal  = sigM[1];
+    const freqM  = line.match(/freq: (\d+)/);         if (freqM)  cur.freq    = freqM[1];
+    const chanM  = line.match(/DS Parameter set: channel (\d+)/i); if (chanM) cur.channel = chanM[1];
+    if (line.includes('RSN:') || line.includes('WPA2'))  cur.enc = 'wpa2';
+    else if (line.includes('WPA3'))                       cur.enc = 'wpa3';
+    else if (line.includes('WPA:'))                       cur.enc = 'wpa';
+  }
+  if (cur) nets.push(cur);
+  return nets.filter(n => n.ssid);
+}
+
+function signalBars(dbm) {
+  const v = parseInt(dbm);
+  let bars = 0;
+  if (v > -50) bars = 4;
+  else if (v > -65) bars = 3;
+  else if (v > -75) bars = 2;
+  else if (v > -85) bars = 1;
+  return `<span class="signal-bar">
+    <span class="b ${bars>=1?'active':''}"></span>
+    <span class="b ${bars>=2?'active':''}"></span>
+    <span class="b ${bars>=3?'active':''}"></span>
+    <span class="b ${bars>=4?'active':''}"></span>
+  </span>`;
+}
+
+function renderWlanResults(lines) {
+  const nets = wlanParseIw(lines);
+  const panel = document.getElementById('wlan-results');
+
+  if (!nets.length) {
+    panel.innerHTML = `<div class="res-card"><div class="res-placeholder"><div class="icon">📶</div><div>Keine Netzwerke gefunden</div></div></div>`;
+    return;
+  }
+
+  // Sort by signal strength
+  nets.sort((a, b) => parseInt(b.signal||'-100') - parseInt(a.signal||'-100'));
+
+  let html = `<div class="res-card">
+    <div class="res-card-title">📶 Netzwerke <span style="color:var(--ha-accent);margin-left:6px">${nets.length}</span></div>`;
+
+  for (const n of nets) {
+    const encClass = n.enc === 'open' ? 'open' : n.enc === 'wpa3' ? 'wpa3' : n.enc === 'wpa2' ? 'wpa2' : 'wpa';
+    const encLabel = n.enc === 'open' ? 'OFFEN' : n.enc.toUpperCase();
+    const ghz = n.freq ? (parseInt(n.freq) > 3000 ? '5 GHz' : '2.4 GHz') : '';
+    html += `<div class="wlan-net">
+      <div class="wlan-ssid">
+        ${n.ssid || '<em style="opacity:0.5">Hidden</em>'}
+        <span class="wlan-enc ${encClass}">${encLabel}</span>
+      </div>
+      <div class="wlan-meta">
+        ${n.signal ? `<span>${signalBars(n.signal)} <span class="val">${n.signal} dBm</span></span>` : ''}
+        ${n.channel ? `<span>CH <span class="val">${n.channel}</span></span>` : ''}
+        ${ghz ? `<span><span class="val">${ghz}</span></span>` : ''}
+        <span style="font-size:10px;opacity:0.5">${n.bssid}</span>
+      </div>
+    </div>`;
+  }
+
+  html += `</div>`;
+  panel.innerHTML = html;
+}
+
+// ── Scan starters ─────────────────────────────────────────────
+function startIpScan() {
+  const target  = document.getElementById('ip-target').value.trim();
+  const scanner = document.getElementById('ip-scanner').value;
+  const profile = document.getElementById('ip-profile').value;
+  if (!target) { document.getElementById('ip-target').focus(); return; }
+
+  clearAll();
+  const label = scanner === 'rustscan'
+    ? `▶ Fast Scan → ${target}`
+    : `▶ Nmap → ${target}  [${profile}]`;
+  appendLine('ip', label, 'tl-info');
+
+  const path = scanner === 'rustscan'
+    ? `/scan/rustscan?target=${encodeURIComponent(target)}`
+    : `/scan/nmap?target=${encodeURIComponent(target)}&profile=${encodeURIComponent(profile)}`;
+
+  startStream('ip', path, null, renderNmapResults);
+}
+
+function startWlanScan() {
+  const iface = document.getElementById('wlan-iface').value.trim() || 'wlan0';
+  const tool  = document.getElementById('wlan-tool').value;
+  clearWlan();
+  appendLine('wlan', `▶ ${tool} auf ${iface}`, 'tl-info');
+  const paths = { iw: '/scan/iw', iwlist: '/scan/iwlist', airodump: '/scan/airodump' };
+
+  startStream('wlan', `${paths[tool]}?iface=${encodeURIComponent(iface)}`,
+    null,
+    (lines) => {
+      if (tool === 'iw' || tool === 'iwlist') renderWlanResults(lines);
+    }
+  );
+}
+
+function onScannerChange() {
+  const isRust = document.getElementById('ip-scanner').value === 'rustscan';
+  document.getElementById('profile-group').style.opacity = isRust ? '0.35' : '1';
+  document.getElementById('rustscan-info').style.display = isRust ? 'block' : 'none';
+}
+
+// ── Interface auto-detect ─────────────────────────────────────
+fetch(BASE + '/interfaces')
+  .then(r => r.json())
+  .then(d => {
+    if (!d.interfaces || !d.interfaces.length) return;
+    const first = d.interfaces[0];
+    document.getElementById('wlan-iface').value = first.name || first;
+    const hasMonitor = d.interfaces.some(i => i.monitor);
+    const opt = document.getElementById('opt-airodump');
+    if (opt && !hasMonitor) {
+      opt.disabled = true;
+      opt.textContent = 'airodump-ng  ✗  (kein Monitor-Modus)';
+    }
+  }).catch(() => {});
+</script>
+</body>
+</html>
