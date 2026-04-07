@@ -29,3 +29,6 @@ RUN ARCH=$(uname -m) && \
 
 # Copy rootfs into container
 COPY rootfs /
+
+# Ensure s6 service script is executable
+RUN chmod a+x /etc/services.d/recon/run
