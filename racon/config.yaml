@@ -1,6 +1,6 @@
 name: "Recon"
 description: "Network Scanner - IP/Port scanning with Nmap & RustScan, WLAN scanning with iw"
-version: "1.0.0"
+version: "1.0.1"
 slug: "recon"
 init: false
 arch:
@@ -17,5 +17,8 @@ privileged:
   - NET_ADMIN
   - NET_RAW
   - SYS_ADMIN
-options: {}
-schema: {}
+options:
+  port: 8765
+schema:
+  port: int
+  
