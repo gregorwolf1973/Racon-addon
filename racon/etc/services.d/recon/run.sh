@@ -1,16 +1,16 @@
 #!/usr/bin/with-contenv bashio
 
-bashio::log.info "Starting Recon addon..."
+bashio::log.info "Starting Recon..."
 
-# Get ingress path from HA supervisor
-INGRESS_PATH=$(bashio::addon.ingress_entry)
+# Read port from addon config (with fallback to 8765)
+PORT=$(bashio::config 'port' 2>/dev/null || echo "8765")
+export INGRESS_PORT=${PORT}
+
+# Ingress path from supervisor
+INGRESS_PATH=$(bashio::addon.ingress_entry 2>/dev/null || echo "")
 export INGRESS_PATH
 
-INGRESS_PORT=$(bashio::addon.ingress_port)
-export INGRESS_PORT
-
+bashio::log.info "Port: ${PORT}"
 bashio::log.info "Ingress path: ${INGRESS_PATH}"
-bashio::log.info "Ingress port: ${INGRESS_PORT}"
 
-# Start Flask app
 exec python3 /app/app.py
