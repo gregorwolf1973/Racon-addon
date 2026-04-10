@@ -1351,7 +1351,8 @@ function startBrute() {
   const foundCreds = [];
   startStream('brute', `/scan/brute?${params}`,
     (line) => {
-      const m = line.match(/\[(\d+)\]\[([^\]]+)\]\s+host:\s*(\S+)\s+login:\s*(\S+)\s+password:\s*(.+)/i);
+      // Hydra output: [PORT][PROTO] host: X   [misc: ...]   login: Y   password: Z
+      const m = line.match(/\[(\d+)\]\[([^\]]+)\].*host:\s*(\S+).*login:\s*(\S+).*password:\s*(.+)/i);
       if (m) foundCreds.push({ port: m[1], proto: m[2], host: m[3], login: m[4], pass: m[5].trim() });
     },
     () => renderBruteResults(foundCreds)
