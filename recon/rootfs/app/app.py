@@ -2,12 +2,15 @@
 import subprocess
 import shutil
 import os
+import tempfile
 from flask import Flask, render_template, request, Response, stream_with_context, jsonify
 
 app = Flask(__name__)
 
 INGRESS_PATH = os.environ.get("INGRESS_PATH", "")
 INGRESS_PORT = int(os.environ.get("INGRESS_PORT", 8765))
+
+WORDLIST_BASE = os.path.join(os.path.dirname(__file__), "wordlists")
 
 
 def run_streaming(cmd):
@@ -71,6 +74,7 @@ def index():
         has_iw=shutil.which("iw") is not None,
         has_iwlist=shutil.which("iwlist") is not None,
         has_airodump=shutil.which("airodump-ng") is not None,
+        has_hydra=shutil.which("hydra") is not None,
     )
 
 
@@ -148,6 +152,154 @@ def get_interfaces():
         return jsonify({"interfaces": ifaces})
     except Exception as e:
         return jsonify({"interfaces": [], "error": str(e)})
+
+
+# ── Wordlists ──────────────────────────────────────────────────────────────────
+
+@app.route("/wordlists")
+def list_wordlists():
+    """Return available SecLists wordlists grouped by type."""
+    def scan(subdir):
+        path = os.path.join(WORDLIST_BASE, subdir)
+        if not os.path.isdir(path):
+            return []
+        return sorted([
+            {"name": f, "lines": sum(1 for _ in open(os.path.join(path, f), errors="ignore"))}
+            for f in os.listdir(path) if f.endswith(".txt")
+        ], key=lambda x: x["lines"])
+
+    return jsonify({
+        "usernames": scan("usernames"),
+        "passwords": scan("passwords"),
+    })
+
+
+# ── Brute Force ────────────────────────────────────────────────────────────────
+
+def _safe_wordlist_path(subdir, filename):
+    """Resolve and validate a wordlist path to prevent path traversal."""
+    if not filename or "/" in filename or "\\" in filename or not filename.endswith(".txt"):
+        return None
+    full = os.path.realpath(os.path.join(WORDLIST_BASE, subdir, filename))
+    base = os.path.realpath(os.path.join(WORDLIST_BASE, subdir))
+    if not full.startswith(base + os.sep):
+        return None
+    return full if os.path.isfile(full) else None
+
+
+@app.route("/scan/brute")
+def scan_brute():
+    target    = request.args.get("target",    "").strip()
+    protocol  = request.args.get("protocol",  "ssh").strip()
+    port      = request.args.get("port",      "").strip()
+    # Wordlist file names (from /app/wordlists/)
+    userlist  = request.args.get("userlist",  "").strip()
+    passlist  = request.args.get("passlist",  "").strip()
+    # Fallback: manual comma-separated values
+    usernames = request.args.get("usernames", "").strip()
+    passwords = request.args.get("passwords", "").strip()
+
+    if not target:
+        return Response("data: [ERROR] Kein Ziel angegeben\n\n", mimetype="text/event-stream")
+
+    tmp_files = []
+
+    try:
+        cmd = ["hydra", "-t", "4", "-V"]
+
+        # ── Username source ───────────────────────────────────────
+        if userlist:
+            path = _safe_wordlist_path("usernames", userlist)
+            if not path:
+                return Response("data: [ERROR] Ungültige Username-Liste\n\n", mimetype="text/event-stream")
+            cmd += ["-L", path]
+        else:
+            user_list = [u.strip() for u in usernames.split(",") if u.strip()] or ["admin"]
+            if len(user_list) == 1:
+                cmd += ["-l", user_list[0]]
+            else:
+                uf = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, prefix="recon_")
+                uf.write("\n".join(user_list))
+                uf.close()
+                tmp_files.append(uf.name)
+                cmd += ["-L", uf.name]
+
+        # ── Password source ───────────────────────────────────────
+        if passlist:
+            path = _safe_wordlist_path("passwords", passlist)
+            if not path:
+                return Response("data: [ERROR] Ungültige Passwort-Liste\n\n", mimetype="text/event-stream")
+            cmd += ["-P", path]
+        elif passwords:
+            pass_list = [p.strip() for p in passwords.split(",") if p.strip()]
+            if not pass_list:
+                return Response("data: [ERROR] Kein Passwort angegeben\n\n", mimetype="text/event-stream")
+            if len(pass_list) == 1:
+                cmd += ["-p", pass_list[0]]
+            else:
+                pf = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, prefix="recon_")
+                pf.write("\n".join(pass_list))
+                pf.close()
+                tmp_files.append(pf.name)
+                cmd += ["-P", pf.name]
+        else:
+            return Response("data: [ERROR] Kein Passwort / keine Passwortliste angegeben\n\n", mimetype="text/event-stream")
+
+        if port:
+            cmd += ["-s", port]
+
+        cmd += [target, protocol]
+
+    except Exception as e:
+        for f in tmp_files:
+            try: os.unlink(f)
+            except: pass
+        return Response(f"data: [ERROR] {e}\n\n", mimetype="text/event-stream")
+
+    def generate():
+        import select as sel
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            fd = process.stdout.fileno()
+            while True:
+                ready, _, _ = sel.select([fd], [], [], 15)
+                if ready:
+                    line = process.stdout.readline()
+                    if line == "":
+                        break
+                    yield f"data: {line.rstrip()}\n\n"
+                else:
+                    yield ": keep-alive\n\n"
+                if process.poll() is not None:
+                    for line in process.stdout:
+                        yield f"data: {line.rstrip()}\n\n"
+                    break
+            process.wait()
+            yield f"data: [DONE] Exit code: {process.returncode}\n\n"
+        except FileNotFoundError:
+            yield "data: [ERROR] hydra nicht gefunden – bitte Addon neu bauen\n\n"
+        except Exception as e:
+            yield f"data: [ERROR] {e}\n\n"
+        finally:
+            for f in tmp_files:
+                try: os.unlink(f)
+                except: pass
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 if __name__ == "__main__":

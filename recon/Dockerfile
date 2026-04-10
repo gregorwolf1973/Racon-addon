@@ -10,6 +10,7 @@ RUN apk add --no-cache \
     wireless-tools \
     iw \
     aircrack-ng \
+    hydra \
     curl \
     bash
 

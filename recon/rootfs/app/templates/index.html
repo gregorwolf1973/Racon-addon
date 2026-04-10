@@ -169,6 +169,10 @@
   .wlan-meta span { font-size: 11px; color: var(--ha-text-dim); }
   .wlan-meta .val { color: var(--ha-text); }
 
+  /* Brute Force button */
+  .ha-btn-brute { background: #7b1fa2; color: #fff; }
+  .ha-btn-brute:hover { background: #6a1b9a; }
+
   /* Signal bar */
   .signal-bar { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: middle; }
   .signal-bar .b { width: 4px; background: var(--ha-border); border-radius: 1px; }
@@ -189,6 +193,7 @@
     <span class="ha-chip {{ 'ok' if has_nmap else 'warn' }}"><span class="dot"></span>nmap</span>
     <span class="ha-chip {{ 'ok' if has_iw else 'warn' }}"><span class="dot"></span>iw</span>
     <span class="ha-chip {{ 'ok' if has_airodump else 'warn' }}"><span class="dot"></span>airodump</span>
+    <span class="ha-chip {{ 'ok' if has_hydra else 'warn' }}"><span class="dot"></span>hydra</span>
   </div>
 </div>
 
@@ -197,6 +202,7 @@
   <div class="ha-tabs">
     <button class="ha-tab active" onclick="switchTab('ip',this)">🔍 IP / Port Scanner</button>
     <button class="ha-tab" onclick="switchTab('wlan',this)">📶 WLAN Scanner</button>
+    <button class="ha-tab" onclick="switchTab('brute',this)">🔐 Brute Force</button>
   </div>
 
   <!-- ══ IP SCANNER ══ -->
@@ -273,6 +279,112 @@
       </div>
 
     </div>
+  </div>
+
+  <!-- ══ BRUTE FORCE ══ -->
+  <div id="tab-brute" class="ha-panel">
+
+    <div class="ha-card">
+      <div class="ha-card-title">Brute-Force-Konfiguration</div>
+      <div class="ha-form-row">
+        <div class="ha-form-group">
+          <label class="ha-label">Ziel (IP / Hostname)</label>
+          <input class="ha-input" id="brute-target" type="text"
+            placeholder="192.168.1.1" style="min-width:220px"
+            onkeydown="if(event.key==='Enter') startBrute()" />
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">Protokoll</label>
+          <select class="ha-select" id="brute-protocol" onchange="onProtocolChange()">
+            <option value="ssh">SSH (22)</option>
+            <option value="ftp">FTP (21)</option>
+            <option value="http-get">HTTP GET (80)</option>
+            <option value="https-get">HTTPS GET (443)</option>
+            <option value="smb">SMB (445)</option>
+            <option value="telnet">Telnet (23)</option>
+            <option value="pop3">POP3 (110)</option>
+            <option value="smtp">SMTP (25)</option>
+            <option value="rdp">RDP (3389)</option>
+          </select>
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">Port (optional)</label>
+          <input class="ha-input" id="brute-port" type="text"
+            placeholder="Auto" style="min-width:90px;max-width:110px" />
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="ha-btn ha-btn-brute" id="brute-start-btn" onclick="startBrute()">▶ Angriff</button>
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="ha-btn ha-btn-danger" id="brute-stop-btn" style="display:none" onclick="stopScan('brute')">■ Stop</button>
+        </div>
+      </div>
+
+      <div class="ha-form-row" style="margin-top:12px">
+        <!-- Username source -->
+        <div class="ha-form-group" style="flex:1;min-width:220px">
+          <label class="ha-label">Benutzerliste (SecLists)</label>
+          <select class="ha-select" id="brute-userlist" style="width:100%" onchange="onUserSourceChange()">
+            <option value="">— Manuell eingeben —</option>
+          </select>
+        </div>
+        <div class="ha-form-group" style="flex:1;min-width:220px" id="brute-users-group">
+          <label class="ha-label">Benutzernamen (kommagetrennt)</label>
+          <input class="ha-input" id="brute-users" type="text"
+            placeholder="admin, root, user" style="width:100%" />
+        </div>
+      </div>
+
+      <div class="ha-form-row" style="margin-top:8px">
+        <!-- Password source -->
+        <div class="ha-form-group" style="flex:1;min-width:220px">
+          <label class="ha-label">Passwortliste (SecLists)</label>
+          <select class="ha-select" id="brute-passlist" style="width:100%" onchange="onPassSourceChange()">
+            <option value="">— Manuell eingeben —</option>
+          </select>
+        </div>
+        <div class="ha-form-group" style="flex:1;min-width:220px" id="brute-passes-group">
+          <label class="ha-label">Passwörter (kommagetrennt)</label>
+          <input class="ha-input" id="brute-passes" type="text"
+            placeholder="admin, password, 12345" style="width:100%" />
+        </div>
+      </div>
+
+      <div class="ha-info-strip" style="margin-top:12px">
+        ⚠️ <strong>Nur auf eigene Geräte / autorisierte Systeme anwenden.</strong>
+        SecLists-Listen werden direkt aus dem Container geladen — kein Download nötig.
+        Manuell: mehrere Werte kommagetrennt. Stop-Button bricht Hydra sofort ab.
+      </div>
+    </div>
+
+    <div class="split-area">
+      <div class="ha-terminal-card">
+        <div class="ha-terminal-topbar">
+          <div class="ha-terminal-title">
+            🔐 Hydra Output
+            <div class="ha-scanning-dot" id="brute-scanning">
+              <div class="pulse-dot"></div> Läuft…
+            </div>
+          </div>
+          <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+            onclick="clearBrute()">Leeren</button>
+        </div>
+        <div class="ha-terminal-body" id="brute-output"><span class="tl tl-dim">Bereit — Ziel und Zugangsdaten eingeben, dann Angriff starten.</span>
+</div>
+      </div>
+
+      <div class="results-panel" id="brute-results">
+        <div class="res-card" style="flex:1;display:flex;align-items:center;justify-content:center">
+          <div class="res-placeholder">
+            <div class="icon">🔑</div>
+            <div>Gefundene<br>Zugangsdaten<br>erscheinen hier</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- ══ WLAN SCANNER ══ -->
@@ -674,6 +786,128 @@ function onScannerChange() {
   document.getElementById('profile-group').style.opacity = isRust ? '0.35' : '1';
   document.getElementById('rustscan-info').style.display = isRust ? 'block' : 'none';
 }
+
+// ══════════════════════════════════════════════════════════════
+// ── BRUTE FORCE ───────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+
+const PROTO_PORTS = {
+  ssh: '22', ftp: '21', 'http-get': '80', 'https-get': '443',
+  smb: '445', telnet: '23', pop3: '110', smtp: '25', rdp: '3389'
+};
+
+function onProtocolChange() {
+  const proto = document.getElementById('brute-protocol').value;
+  const portField = document.getElementById('brute-port');
+  if (!portField.dataset.manual) portField.placeholder = PROTO_PORTS[proto] || 'Auto';
+}
+
+function onUserSourceChange() {
+  const sel = document.getElementById('brute-userlist').value;
+  document.getElementById('brute-users-group').style.display = sel ? 'none' : '';
+}
+
+function onPassSourceChange() {
+  const sel = document.getElementById('brute-passlist').value;
+  document.getElementById('brute-passes-group').style.display = sel ? 'none' : '';
+}
+
+function loadWordlists() {
+  fetch(BASE + '/wordlists').then(r => r.json()).then(data => {
+    const uSel = document.getElementById('brute-userlist');
+    const pSel = document.getElementById('brute-passlist');
+
+    for (const item of data.usernames || []) {
+      const opt = document.createElement('option');
+      opt.value = item.name;
+      opt.textContent = `${item.name}  (${item.lines.toLocaleString()} Einträge)`;
+      uSel.appendChild(opt);
+    }
+
+    for (const item of data.passwords || []) {
+      const opt = document.createElement('option');
+      opt.value = item.name;
+      opt.textContent = `${item.name}  (${item.lines.toLocaleString()} Einträge)`;
+      pSel.appendChild(opt);
+      // Pre-select the short default list
+      if (item.name === 'top-passwords-shortlist.txt') opt.selected = true;
+    }
+    onPassSourceChange();
+  }).catch(() => {});
+}
+
+function clearBrute() {
+  document.getElementById('brute-output').innerHTML = '';
+  document.getElementById('brute-results').innerHTML = `
+    <div class="res-card" style="flex:1;display:flex;align-items:center;justify-content:center">
+      <div class="res-placeholder"><div class="icon">🔑</div><div>Gefundene<br>Zugangsdaten<br>erscheinen hier</div></div>
+    </div>`;
+}
+
+function startBrute() {
+  const target   = document.getElementById('brute-target').value.trim();
+  const proto    = document.getElementById('brute-protocol').value;
+  const port     = document.getElementById('brute-port').value.trim();
+  const userlist = document.getElementById('brute-userlist').value;
+  const passlist = document.getElementById('brute-passlist').value;
+  const users    = document.getElementById('brute-users').value.trim() || 'admin';
+  const passes   = document.getElementById('brute-passes').value.trim();
+
+  if (!target) { document.getElementById('brute-target').focus(); return; }
+  if (!passlist && !passes) { document.getElementById('brute-passes').focus(); return; }
+
+  clearBrute();
+
+  const userLabel = userlist || users;
+  const passLabel = passlist || passes;
+  appendLine('brute', `▶ Hydra → ${proto}://${target}${port ? ':'+port : ''}`, 'tl-info');
+  appendLine('brute', `  Users:  ${userLabel}`, 'tl-dim');
+  appendLine('brute', `  Passes: ${passLabel}`, 'tl-dim');
+
+  const params = new URLSearchParams({ target, protocol: proto });
+  if (port)     params.set('port', port);
+  if (userlist) params.set('userlist', userlist);
+  else          params.set('usernames', users);
+  if (passlist) params.set('passlist', passlist);
+  else          params.set('passwords', passes);
+
+  const foundCreds = [];
+
+  startStream('brute', `/scan/brute?${params}`,
+    (line) => {
+      // Hydra found: [PORT][PROTO] host: X   login: Y   password: Z
+      const m = line.match(/\[(\d+)\]\[([^\]]+)\]\s+host:\s*(\S+)\s+login:\s*(\S+)\s+password:\s*(.+)/i);
+      if (m) foundCreds.push({ port: m[1], proto: m[2], host: m[3], login: m[4], pass: m[5].trim() });
+    },
+    () => renderBruteResults(foundCreds)
+  );
+}
+
+function renderBruteResults(creds) {
+  const panel = document.getElementById('brute-results');
+  if (!creds.length) {
+    panel.innerHTML = `<div class="res-card"><div class="res-placeholder" style="min-height:80px">
+      <div class="icon">🔒</div><div>Keine Zugangsdaten gefunden</div></div></div>`;
+    return;
+  }
+
+  let html = `<div class="res-card">
+    <div class="res-card-title" style="color:#ce93d8">🔑 Gefundene Credentials <span style="color:var(--ha-accent);margin-left:6px">${creds.length}</span></div>`;
+  for (const c of creds) {
+    html += `<div class="wlan-net" style="border-color:rgba(123,31,162,0.4)">
+      <div class="wlan-ssid" style="color:#ce93d8">${c.proto}://${c.host}:${c.port}</div>
+      <div class="wlan-meta">
+        <span>User: <span class="val" style="color:var(--ha-success)">${c.login}</span></span>
+        <span>Pass: <span class="val" style="color:var(--ha-success)">${c.pass}</span></span>
+      </div>
+    </div>`;
+  }
+  html += `</div>`;
+  panel.innerHTML = html;
+}
+
+// ── Startup ───────────────────────────────────────────────────
+loadWordlists();
 
 // ── Interface auto-detect ─────────────────────────────────────
 fetch(BASE + '/interfaces')
