@@ -4,6 +4,7 @@ import shutil
 import os
 import re
 import tempfile
+import urllib.request
 from flask import Flask, render_template, request, Response, stream_with_context, jsonify
 
 # Valid username chars for SSH/FTP/common services
@@ -14,7 +15,44 @@ app = Flask(__name__)
 INGRESS_PATH = os.environ.get("INGRESS_PATH", "")
 INGRESS_PORT = int(os.environ.get("INGRESS_PORT", 8765))
 
+# Bundled lists (baked into image)
 WORDLIST_BASE = os.path.join(os.path.dirname(__file__), "wordlists")
+# Persistent custom lists (HA /data volume)
+CUSTOM_BASE = "/data/wordlists"
+
+SECLISTS_RAW = "https://raw.githubusercontent.com/danielmiessler/SecLists/master/"
+
+# Maps bundled filename → SecLists path (for update checks)
+WORDLIST_SOURCES = {
+    "usernames": {
+        "top-usernames-shortlist.txt":  "Usernames/top-usernames-shortlist.txt",
+        "cirt-default-usernames.txt":   "Usernames/cirt-default-usernames.txt",
+    },
+    "passwords": {
+        "top-passwords-shortlist.txt":      "Passwords/Common-Credentials/top-passwords-shortlist.txt",
+        "top-20-common-SSH-passwords.txt":  "Passwords/Common-Credentials/top-20-common-SSH-passwords.txt",
+        "2025-199_most_used_passwords.txt": "Passwords/Common-Credentials/2025-199_most_used_passwords.txt",
+        "darkweb2017_top-100.txt":          "Passwords/Common-Credentials/darkweb2017_top-100.txt",
+        "darkweb2017_top-1000.txt":         "Passwords/Common-Credentials/darkweb2017_top-1000.txt",
+        "10k-most-common.txt":              "Passwords/Common-Credentials/10k-most-common.txt",
+        "ssh-betterdefaultpasslist.txt":    "Passwords/Default-Credentials/ssh-betterdefaultpasslist.txt",
+        "ftp-betterdefaultpasslist.txt":    "Passwords/Default-Credentials/ftp-betterdefaultpasslist.txt",
+        "probable-v2-wpa-top4800.txt":      "Passwords/WiFi-WPA/probable-v2-wpa-top4800.txt",
+    },
+}
+
+# Protocol-specific Hydra tuning hints (for the UI)
+PROTO_HINTS = {
+    "ssh":       {"tasks": 1, "wait_ms": 3000, "note": "SSH: Fail2ban-Schutz. ≥1000ms nötig, 3000ms sicher."},
+    "rdp":       {"tasks": 1, "wait_ms": 3000, "note": "RDP: Sperrt bei vielen Fehlversuchen. 3000ms empfohlen."},
+    "smb":       {"tasks": 1, "wait_ms": 2000, "note": "SMB: ≥1000ms empfohlen, 2000ms sicher."},
+    "telnet":    {"tasks": 4, "wait_ms": 500,  "note": "Telnet: 500ms reicht meist aus."},
+    "ftp":       {"tasks": 4, "wait_ms": 300,  "note": "FTP: Kein Rate-Limit. 0–500ms."},
+    "pop3":      {"tasks": 4, "wait_ms": 300,  "note": "POP3: 0–500ms."},
+    "smtp":      {"tasks": 4, "wait_ms": 300,  "note": "SMTP: 0–500ms."},
+    "http-get":  {"tasks": 8, "wait_ms": 0,    "note": "HTTP: Kein Wait nötig."},
+    "https-get": {"tasks": 8, "wait_ms": 0,    "note": "HTTPS: Kein Wait nötig."},
+}
 
 
 def run_streaming(cmd):
@@ -30,28 +68,21 @@ def run_streaming(cmd):
                 bufsize=1
             )
             fd = process.stdout.fileno()
-
             while True:
-                # Wait up to 15s for output, then send SSE keepalive comment
                 ready, _, _ = sel.select([fd], [], [], 15)
                 if ready:
                     line = process.stdout.readline()
                     if line == '':
-                        break  # EOF
+                        break
                     yield f"data: {line.rstrip()}\n\n"
                 else:
-                    # Keep connection alive during long scans
                     yield ": keep-alive\n\n"
-
                 if process.poll() is not None:
-                    # Drain remaining output after process exits
                     for line in process.stdout:
                         yield f"data: {line.rstrip()}\n\n"
                     break
-
             process.wait()
             yield f"data: [DONE] Exit code: {process.returncode}\n\n"
-
         except FileNotFoundError:
             yield f"data: [ERROR] Befehl nicht gefunden: {cmd[0]}\n\n"
         except Exception as e:
@@ -60,11 +91,7 @@ def run_streaming(cmd):
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        }
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
     )
 
 
@@ -90,7 +117,6 @@ def scan_nmap():
     profile = request.args.get("profile", "quick")
     if not target:
         return Response("data: [ERROR] Kein Ziel angegeben\n\n", mimetype="text/event-stream")
-
     profiles = {
         "quick":   ["-T4", "--open", "-F"],
         "fast":    ["-T4", "--open", "-p-", "--min-rate", "5000"],
@@ -105,11 +131,9 @@ def scan_nmap():
 
 @app.route("/scan/rustscan")
 def scan_rustscan():
-    # RustScan not available on aarch64/Alpine - use fast nmap instead
     target = request.args.get("target", "").strip()
     if not target:
         return Response("data: [ERROR] Kein Ziel angegeben\n\n", mimetype="text/event-stream")
-    # Fast full-port scan: alle 65535 Ports mit hoher Rate
     return run_streaming(["nmap", "-T4", "--open", "-p-", "--min-rate", "5000", target])
 
 
@@ -118,7 +142,6 @@ def scan_rustscan():
 @app.route("/scan/iw")
 def scan_iw():
     iface = request.args.get("iface", "wlan0").strip()
-    # Bring interface up first
     subprocess.run(["ip", "link", "set", iface, "up"], capture_output=True)
     return run_streaming(["iw", "dev", iface, "scan"])
 
@@ -141,7 +164,6 @@ def scan_airodump():
 
 @app.route("/interfaces")
 def get_interfaces():
-    """List available wireless interfaces and their monitor mode capability."""
     try:
         result = subprocess.run(["iw", "dev"], capture_output=True, text=True)
         ifaces = []
@@ -149,7 +171,6 @@ def get_interfaces():
             line = line.strip()
             if line.startswith("Interface"):
                 name = line.split()[-1]
-                # Check if monitor mode is supported
                 phy = subprocess.run(["iw", "phy"], capture_output=True, text=True)
                 monitor = "monitor" in phy.stdout.lower()
                 ifaces.append({"name": name, "monitor": monitor})
@@ -160,36 +181,184 @@ def get_interfaces():
 
 # ── Wordlists ──────────────────────────────────────────────────────────────────
 
+def _wordlist_dir(category):
+    """Return (bundled_dir, custom_dir) for a category."""
+    return (
+        os.path.join(WORDLIST_BASE, category),
+        os.path.join(CUSTOM_BASE, category),
+    )
+
+
+def _safe_wordlist_path(category, filename):
+    """Resolve path, checking custom dir first, then bundled. Prevents traversal."""
+    if not filename or "/" in filename or "\\" in filename or not filename.endswith(".txt"):
+        return None
+    bundled, custom = _wordlist_dir(category)
+    for base in (custom, bundled):
+        full = os.path.realpath(os.path.join(base, filename))
+        if os.path.isfile(full) and full.startswith(os.path.realpath(base) + os.sep):
+            return full
+    return None
+
+
+def _count_lines(path):
+    try:
+        return sum(1 for _ in open(path, errors="ignore"))
+    except Exception:
+        return 0
+
+
 @app.route("/wordlists")
 def list_wordlists():
-    """Return available SecLists wordlists grouped by type."""
-    def scan(subdir):
-        path = os.path.join(WORDLIST_BASE, subdir)
-        if not os.path.isdir(path):
-            return []
-        return sorted([
-            {"name": f, "lines": sum(1 for _ in open(os.path.join(path, f), errors="ignore"))}
-            for f in os.listdir(path) if f.endswith(".txt")
-        ], key=lambda x: x["lines"])
+    """Return available wordlists (bundled + custom) with metadata."""
+    def scan(category):
+        bundled_dir, custom_dir = _wordlist_dir(category)
+        seen = {}
+
+        # Bundled lists
+        if os.path.isdir(bundled_dir):
+            for f in os.listdir(bundled_dir):
+                if f.endswith(".txt"):
+                    p = os.path.join(bundled_dir, f)
+                    seen[f] = {
+                        "name": f,
+                        "lines": _count_lines(p),
+                        "size": os.path.getsize(p),
+                        "custom": False,
+                        "updatable": f in WORDLIST_SOURCES.get(category, {}),
+                    }
+
+        # Custom lists (override bundled if same name)
+        if os.path.isdir(custom_dir):
+            for f in os.listdir(custom_dir):
+                if f.endswith(".txt"):
+                    p = os.path.join(custom_dir, f)
+                    seen[f] = {
+                        "name": f,
+                        "lines": _count_lines(p),
+                        "size": os.path.getsize(p),
+                        "custom": True,
+                        "updatable": f in WORDLIST_SOURCES.get(category, {}),
+                    }
+
+        return sorted(seen.values(), key=lambda x: x["lines"])
 
     return jsonify({
         "usernames": scan("usernames"),
         "passwords": scan("passwords"),
+        "hints": PROTO_HINTS,
     })
 
 
+@app.route("/wordlists/upload", methods=["POST"])
+def upload_wordlist():
+    """Upload a custom wordlist .txt file (multipart or URL fetch)."""
+    category = request.args.get("category", "").strip()
+    if category not in ("usernames", "passwords"):
+        return jsonify({"error": "Ungültige Kategorie"}), 400
+
+    _, custom_dir = _wordlist_dir(category)
+    os.makedirs(custom_dir, exist_ok=True)
+
+    # ── File upload ──
+    if "file" in request.files:
+        f = request.files["file"]
+        fname = re.sub(r"[^\w\-\.]", "_", f.filename or "custom.txt")
+        if not fname.endswith(".txt"):
+            fname += ".txt"
+        dest = os.path.join(custom_dir, fname)
+        content = f.read(10 * 1024 * 1024)  # 10 MB limit
+        if len(content) >= 10 * 1024 * 1024:
+            return jsonify({"error": "Datei zu groß (max 10 MB)"}), 413
+        with open(dest, "wb") as out:
+            out.write(content)
+        lines = _count_lines(dest)
+        return jsonify({"ok": True, "name": fname, "lines": lines, "custom": True})
+
+    # ── URL fetch ──
+    url = (request.json or {}).get("url", "").strip() if request.is_json else request.form.get("url", "").strip()
+    if url:
+        if not url.startswith(("http://", "https://")):
+            return jsonify({"error": "Nur http/https URLs erlaubt"}), 400
+        fname = re.sub(r"[^\w\-\.]", "_", url.split("/")[-1] or "custom.txt")
+        if not fname.endswith(".txt"):
+            fname += ".txt"
+        dest = os.path.join(custom_dir, fname)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ReconAddon/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                content = resp.read(10 * 1024 * 1024)
+            with open(dest, "wb") as out:
+                out.write(content)
+            lines = _count_lines(dest)
+            return jsonify({"ok": True, "name": fname, "lines": lines, "custom": True})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"error": "Keine Datei oder URL angegeben"}), 400
+
+
+@app.route("/wordlists/check-updates")
+def check_wordlist_updates():
+    """Compare local file sizes with GitHub raw Content-Length."""
+    results = {}
+    for category, files in WORDLIST_SOURCES.items():
+        bundled_dir, custom_dir = _wordlist_dir(category)
+        for fname, gh_path in files.items():
+            # Prefer custom over bundled
+            local = None
+            for d in (custom_dir, bundled_dir):
+                p = os.path.join(d, fname)
+                if os.path.isfile(p):
+                    local = p
+                    break
+            if not local:
+                continue
+            local_size = os.path.getsize(local)
+            url = SECLISTS_RAW + gh_path
+            try:
+                req = urllib.request.Request(url, method="HEAD",
+                                              headers={"User-Agent": "ReconAddon/1.0"})
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    remote_size = int(resp.headers.get("Content-Length", -1))
+                results[fname] = {
+                    "update_available": remote_size > 0 and remote_size != local_size,
+                    "local_size": local_size,
+                    "remote_size": remote_size,
+                }
+            except Exception as e:
+                results[fname] = {"update_available": None, "error": str(e)}
+    return jsonify(results)
+
+
+@app.route("/wordlists/update", methods=["POST"])
+def update_wordlist():
+    """Download the latest version of a bundled list from SecLists."""
+    data = request.get_json(force=True, silent=True) or {}
+    category = data.get("category", "").strip()
+    fname    = data.get("file", "").strip()
+
+    if category not in WORDLIST_SOURCES or fname not in WORDLIST_SOURCES[category]:
+        return jsonify({"error": "Nicht in Quellliste"}), 404
+
+    _, custom_dir = _wordlist_dir(category)
+    os.makedirs(custom_dir, exist_ok=True)
+    dest = os.path.join(custom_dir, fname)
+    url  = SECLISTS_RAW + WORDLIST_SOURCES[category][fname]
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "ReconAddon/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            content = resp.read(50 * 1024 * 1024)  # 50 MB max
+        with open(dest, "wb") as out:
+            out.write(content)
+        lines = _count_lines(dest)
+        return jsonify({"ok": True, "name": fname, "lines": lines})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── Brute Force ────────────────────────────────────────────────────────────────
-
-def _safe_wordlist_path(subdir, filename):
-    """Resolve and validate a wordlist path to prevent path traversal."""
-    if not filename or "/" in filename or "\\" in filename or not filename.endswith(".txt"):
-        return None
-    full = os.path.realpath(os.path.join(WORDLIST_BASE, subdir, filename))
-    base = os.path.realpath(os.path.join(WORDLIST_BASE, subdir))
-    if not full.startswith(base + os.sep):
-        return None
-    return full if os.path.isfile(full) else None
-
 
 def _filter_userlist_file(src_path):
     """Return a cleaned temp file with only valid username entries."""
@@ -200,37 +369,43 @@ def _filter_userlist_file(src_path):
             if u and _VALID_USER_RE.match(u):
                 valid.append(u)
     if not valid:
-        return None, []
+        return None, 0
     tf = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, prefix="recon_users_")
     tf.write("\n".join(valid) + "\n")
     tf.close()
-    return tf.name, valid
+    return tf.name, len(valid)
 
 
 @app.route("/scan/brute")
 def scan_brute():
-    target    = request.args.get("target",    "").strip()
-    protocol  = request.args.get("protocol",  "ssh").strip()
-    port      = request.args.get("port",      "").strip()
-    tasks     = request.args.get("tasks",     "").strip()   # parallel hydra tasks
-    wait      = request.args.get("wait",      "").strip()   # seconds between retries
-    # Wordlist file names (from /app/wordlists/)
-    userlist  = request.args.get("userlist",  "").strip()
-    passlist  = request.args.get("passlist",  "").strip()
-    # Fallback: manual comma-separated values
+    target   = request.args.get("target",   "").strip()
+    protocol = request.args.get("protocol", "ssh").strip()
+    port     = request.args.get("port",     "").strip()
+    # wait_ms: milliseconds from UI → convert to seconds for hydra
+    wait_ms  = request.args.get("wait_ms",  "").strip()
+    tasks    = request.args.get("tasks",    "").strip()
+    userlist = request.args.get("userlist", "").strip()
+    passlist = request.args.get("passlist", "").strip()
     usernames = request.args.get("usernames", "").strip()
     passwords = request.args.get("passwords", "").strip()
 
     if not target:
         return Response("data: [ERROR] Kein Ziel angegeben\n\n", mimetype="text/event-stream")
 
-    # Protocol defaults for tasks/wait (SSH is restrictive)
-    ssh_like = protocol in ("ssh", "rdp", "smb")
-    default_tasks = "1" if ssh_like else "4"
-    default_wait  = "3" if ssh_like else "0"
+    # ── Resolve tasks & wait ──────────────────────────────────────
+    hint = PROTO_HINTS.get(protocol, {"tasks": 4, "wait_ms": 0})
+    default_tasks = hint["tasks"]
+    default_wait_s = hint["wait_ms"] // 1000
 
-    t = tasks if tasks.isdigit() and 1 <= int(tasks) <= 16 else default_tasks
-    w = wait  if wait.isdigit()  and 0 <= int(wait)  <= 30 else default_wait
+    try:
+        t = str(max(1, min(16, int(tasks)))) if tasks.isdigit() else str(default_tasks)
+    except Exception:
+        t = str(default_tasks)
+
+    try:
+        w = str(int(wait_ms) // 1000) if wait_ms.isdigit() else str(default_wait_s)
+    except Exception:
+        w = str(default_wait_s)
 
     tmp_files = []
 
@@ -242,14 +417,14 @@ def scan_brute():
             src = _safe_wordlist_path("usernames", userlist)
             if not src:
                 return Response("data: [ERROR] Ungültige Username-Liste\n\n", mimetype="text/event-stream")
-            filtered, valid = _filter_userlist_file(src)
+            filtered, count = _filter_userlist_file(src)
             if not filtered:
                 return Response("data: [ERROR] Liste enthält keine gültigen Einträge\n\n", mimetype="text/event-stream")
             tmp_files.append(filtered)
             cmd += ["-L", filtered]
-            # Echo stats as first SSE line later (done via initial appendLine in JS)
         else:
-            user_list = [u.strip() for u in usernames.split(",") if u.strip() and _VALID_USER_RE.match(u.strip())] or ["admin"]
+            user_list = [u.strip() for u in usernames.split(",")
+                         if u.strip() and _VALID_USER_RE.match(u.strip())] or ["admin"]
             if len(user_list) == 1:
                 cmd += ["-l", user_list[0]]
             else:
@@ -282,7 +457,6 @@ def scan_brute():
 
         if port:
             cmd += ["-s", port]
-
         cmd += [target, protocol]
 
     except Exception as e:
@@ -329,11 +503,7 @@ def scan_brute():
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
 
 

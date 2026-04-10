@@ -173,6 +173,31 @@
   .ha-btn-brute { background: #7b1fa2; color: #fff; }
   .ha-btn-brute:hover { background: #6a1b9a; }
 
+  /* Wordlist picker button group */
+  .wl-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+  .wl-btn {
+    padding: 5px 11px; border-radius: 16px; border: 1px solid var(--ha-border);
+    background: var(--ha-card2); color: var(--ha-text-dim); font-size: 12px;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .wl-btn:hover { border-color: var(--ha-accent); color: var(--ha-text); }
+  .wl-btn.active { background: #7b1fa2; border-color: #7b1fa2; color: #fff; }
+  .wl-btn.wl-upload { border-style: dashed; color: var(--ha-accent); border-color: var(--ha-accent); }
+  .wl-btn.wl-upload:hover { background: rgba(3,169,244,0.08); }
+  .wl-btn.wl-upload.active { background: rgba(3,169,244,0.15); color: var(--ha-accent); border-style: solid; }
+  .wl-btn .upd-dot { display:inline-block;width:7px;height:7px;border-radius:50%;
+    background:var(--ha-warning);margin-left:5px;vertical-align:middle; }
+  .wl-btn.custom-list { border-color: #4a90d9; color: #4a90d9; }
+  .wl-btn.custom-list.active { background: #1a3a5c; border-color: #4a90d9; color: #9ecfff; }
+
+  /* Upload panel */
+  .upload-panel { background: rgba(3,169,244,0.05); border: 1px solid rgba(3,169,244,0.2);
+    border-radius: 8px; padding: 12px; margin-top: 10px; }
+
+  /* Hint badge */
+  .wl-hint-badge { font-size:11px; color: var(--ha-text-dim); cursor: help;
+    margin-left: 4px; vertical-align: middle; }
+
   /* Signal bar */
   .signal-bar { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: middle; }
   .signal-bar .b { width: 4px; background: var(--ha-border); border-radius: 1px; }
@@ -284,13 +309,14 @@
   <!-- ══ BRUTE FORCE ══ -->
   <div id="tab-brute" class="ha-panel">
 
+    <!-- ── Row 1: target / protocol / port / tasks / wait / actions ── -->
     <div class="ha-card">
       <div class="ha-card-title">Brute-Force-Konfiguration</div>
       <div class="ha-form-row">
         <div class="ha-form-group">
           <label class="ha-label">Ziel (IP / Hostname)</label>
           <input class="ha-input" id="brute-target" type="text"
-            placeholder="192.168.1.1" style="min-width:220px"
+            placeholder="192.168.1.1" style="min-width:200px"
             onkeydown="if(event.key==='Enter') startBrute()" />
         </div>
         <div class="ha-form-group">
@@ -308,79 +334,125 @@
           </select>
         </div>
         <div class="ha-form-group">
-          <label class="ha-label">Port (optional)</label>
+          <label class="ha-label">Port (opt.)</label>
           <input class="ha-input" id="brute-port" type="text"
-            placeholder="Auto" style="min-width:90px;max-width:110px" />
+            placeholder="Auto" style="min-width:75px;max-width:90px" />
         </div>
         <div class="ha-form-group">
-          <label class="ha-label">Tasks (Threads)</label>
-          <select class="ha-select" id="brute-tasks" style="min-width:90px;max-width:120px">
+          <label class="ha-label">Tasks</label>
+          <select class="ha-select" id="brute-tasks" style="min-width:80px;max-width:110px">
             <option value="">Auto</option>
-            <option value="1">1 (sicher)</option>
+            <option value="1">1</option>
             <option value="2">2</option>
             <option value="4">4</option>
-            <option value="8">8 (schnell)</option>
+            <option value="8">8</option>
           </select>
         </div>
         <div class="ha-form-group">
-          <label class="ha-label">Wartezeit (s)</label>
-          <select class="ha-select" id="brute-wait" style="min-width:90px;max-width:110px">
-            <option value="">Auto</option>
-            <option value="0">0</option>
-            <option value="1">1 s</option>
-            <option value="3">3 s</option>
-            <option value="5">5 s</option>
-            <option value="10">10 s</option>
-          </select>
+          <label class="ha-label">
+            Wartezeit (ms)
+            <span class="wl-hint-badge" id="wait-hint-badge" title="">ⓘ</span>
+          </label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input class="ha-input" id="brute-wait-ms" type="number" min="0" step="100"
+              placeholder="Auto" style="min-width:90px;max-width:110px"
+              oninput="updateWaitDisplay()" />
+            <span id="wait-eff-label" class="ha-label" style="white-space:nowrap;color:var(--ha-text-dim)"></span>
+          </div>
         </div>
-        <div class="ha-form-group">
+        <div class="ha-form-group" style="justify-content:flex-end">
           <label class="ha-label">&nbsp;</label>
-          <button class="ha-btn ha-btn-brute" id="brute-start-btn" onclick="startBrute()">▶ Angriff</button>
-        </div>
-        <div class="ha-form-group">
-          <label class="ha-label">&nbsp;</label>
-          <button class="ha-btn ha-btn-danger" id="brute-stop-btn" style="display:none" onclick="stopScan('brute')">■ Stop</button>
-        </div>
-      </div>
-
-      <div class="ha-form-row" style="margin-top:12px">
-        <!-- Username source -->
-        <div class="ha-form-group" style="flex:1;min-width:220px">
-          <label class="ha-label">Benutzerliste (SecLists)</label>
-          <select class="ha-select" id="brute-userlist" style="width:100%" onchange="onUserSourceChange()">
-            <option value="">— Manuell eingeben —</option>
-          </select>
-        </div>
-        <div class="ha-form-group" style="flex:1;min-width:220px" id="brute-users-group">
-          <label class="ha-label">Benutzernamen (kommagetrennt)</label>
-          <input class="ha-input" id="brute-users" type="text"
-            placeholder="admin, root, user" style="width:100%" />
+          <div style="display:flex;gap:8px">
+            <button class="ha-btn ha-btn-brute" id="brute-start-btn" onclick="startBrute()">▶ Angriff</button>
+            <button class="ha-btn ha-btn-danger" id="brute-stop-btn" style="display:none" onclick="stopScan('brute')">■ Stop</button>
+          </div>
         </div>
       </div>
+      <!-- Protocol hint -->
+      <div class="ha-info-strip" id="proto-hint-strip" style="margin-top:10px;display:none"></div>
+    </div>
 
-      <div class="ha-form-row" style="margin-top:8px">
-        <!-- Password source -->
-        <div class="ha-form-group" style="flex:1;min-width:220px">
-          <label class="ha-label">Passwortliste (SecLists)</label>
-          <select class="ha-select" id="brute-passlist" style="width:100%" onchange="onPassSourceChange()">
-            <option value="">— Manuell eingeben —</option>
-          </select>
-        </div>
-        <div class="ha-form-group" style="flex:1;min-width:220px" id="brute-passes-group">
-          <label class="ha-label">Passwörter (kommagetrennt)</label>
-          <input class="ha-input" id="brute-passes" type="text"
-            placeholder="admin, password, 12345" style="width:100%" />
-        </div>
+    <!-- ── Row 2: Username picker ── -->
+    <div class="ha-card" style="flex-shrink:0">
+      <div class="ha-card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Benutzerliste</span>
+        <span id="user-sel-info" class="ha-label" style="color:var(--ha-accent)"></span>
       </div>
-
-      <div class="ha-info-strip" style="margin-top:12px">
-        ⚠️ <strong>Nur auf eigene Geräte / autorisierte Systeme anwenden.</strong>
-        Bei SSH/RDP/SMB wird automatisch <code>Tasks=1, Wait=3s</code> gesetzt um Sperren zu vermeiden.
-        Ungültige Einträge (z.B. <code>!root</code>, <code>$ALOC$</code>) werden aus Listen herausgefiltert.
-        Stop-Button bricht Hydra sofort ab.
+      <div class="wl-picker" id="user-picker">
+        <button class="wl-btn active" data-val="" onclick="selectWL('user',this,'')">Manuell</button>
+      </div>
+      <div id="user-manual-row" style="margin-top:10px">
+        <input class="ha-input" id="brute-users" type="text"
+          placeholder="admin, root, user" style="width:100%;max-width:500px" />
+      </div>
+      <div id="user-upload-panel" class="upload-panel" style="display:none">
+        <div class="ha-form-row" style="margin-top:0;flex-wrap:wrap;gap:8px">
+          <div class="ha-form-group">
+            <label class="ha-label">Datei hochladen (.txt)</label>
+            <input type="file" id="user-file-input" accept=".txt" style="display:none"
+              onchange="uploadWLFile('usernames','user-file-input')" />
+            <button class="ha-btn ha-btn-ghost" onclick="document.getElementById('user-file-input').click()">
+              📂 Datei wählen
+            </button>
+          </div>
+          <div class="ha-form-group" style="flex:1;min-width:240px">
+            <label class="ha-label">URL laden</label>
+            <div style="display:flex;gap:6px">
+              <input class="ha-input" id="user-url-input" type="text"
+                placeholder="https://example.com/users.txt" style="flex:1" />
+              <button class="ha-btn ha-btn-ghost" onclick="fetchWLUrl('usernames','user-url-input')">Laden</button>
+            </div>
+          </div>
+        </div>
+        <div id="user-upload-status" style="margin-top:6px;font-size:12px;color:var(--ha-text-dim)"></div>
       </div>
     </div>
 
+    <!-- ── Row 3: Password picker ── -->
+    <div class="ha-card" style="flex-shrink:0">
+      <div class="ha-card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Passwortliste</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="pass-sel-info" class="ha-label" style="color:var(--ha-accent)"></span>
+          <button class="ha-btn ha-btn-ghost" style="height:26px;font-size:11px;padding:0 10px"
+            id="update-check-btn" onclick="checkUpdates()">🔄 Updates prüfen</button>
+          <button class="ha-btn ha-btn-ghost" style="height:26px;font-size:11px;padding:0 10px;display:none"
+            id="update-all-btn" onclick="updateAllLists()">⬇ Alle aktualisieren</button>
+        </div>
+      </div>
+      <div class="wl-picker" id="pass-picker">
+        <button class="wl-btn" data-val="" onclick="selectWL('pass',this,'')">Manuell</button>
+      </div>
+      <div id="pass-manual-row" style="margin-top:10px;display:none">
+        <input class="ha-input" id="brute-passes" type="text"
+          placeholder="admin, password, 12345" style="width:100%;max-width:500px" />
+      </div>
+      <div id="pass-upload-panel" class="upload-panel" style="display:none">
+        <div class="ha-form-row" style="margin-top:0;flex-wrap:wrap;gap:8px">
+          <div class="ha-form-group">
+            <label class="ha-label">Datei hochladen (.txt)</label>
+            <input type="file" id="pass-file-input" accept=".txt" style="display:none"
+              onchange="uploadWLFile('passwords','pass-file-input')" />
+            <button class="ha-btn ha-btn-ghost" onclick="document.getElementById('pass-file-input').click()">
+              📂 Datei wählen
+            </button>
+          </div>
+          <div class="ha-form-group" style="flex:1;min-width:240px">
+            <label class="ha-label">URL laden</label>
+            <div style="display:flex;gap:6px">
+              <input class="ha-input" id="pass-url-input" type="text"
+                placeholder="https://example.com/passwords.txt" style="flex:1" />
+              <button class="ha-btn ha-btn-ghost" onclick="fetchWLUrl('passwords','pass-url-input')">Laden</button>
+            </div>
+          </div>
+        </div>
+        <div id="pass-upload-status" style="margin-top:6px;font-size:12px;color:var(--ha-text-dim)"></div>
+      </div>
+      <!-- Update status per list -->
+      <div id="update-status-bar" style="display:none;margin-top:10px;border-top:1px solid var(--ha-border);padding-top:10px"></div>
+    </div>
+
+    <!-- ── Terminal + Results ── -->
     <div class="split-area">
       <div class="ha-terminal-card">
         <div class="ha-terminal-topbar">
@@ -818,46 +890,257 @@ const PROTO_PORTS = {
   smb: '445', telnet: '23', pop3: '110', smtp: '25', rdp: '3389'
 };
 
+// Populated from /wordlists API
+let protoHints = {};
+
+// Currently selected wordlist names
+let selectedUser = '';  // '' = manual
+let selectedPass = 'top-passwords-shortlist.txt';
+
+// Pending update info { fname: {update_available, local_size, remote_size} }
+let updateInfo = {};
+
+// ── Protocol hint ─────────────────────────────────────────────
 function onProtocolChange() {
   const proto = document.getElementById('brute-protocol').value;
-  const portField = document.getElementById('brute-port');
-  if (!portField.dataset.manual) portField.placeholder = PROTO_PORTS[proto] || 'Auto';
+  const hint  = protoHints[proto];
+  const strip = document.getElementById('proto-hint-strip');
+  const badge = document.getElementById('wait-hint-badge');
+
+  if (hint) {
+    const defaultMs = hint.wait_ms;
+    strip.textContent = hint.note +
+      `  →  Tasks: ${hint.tasks},  empf. Wartezeit: ${defaultMs} ms (Hydra: ${Math.floor(defaultMs/1000)} s)`;
+    strip.style.display = 'block';
+    badge.title = `Empfehlung: ${defaultMs} ms`;
+    // Set placeholder
+    const wf = document.getElementById('brute-wait-ms');
+    if (!wf.dataset.manual) wf.placeholder = `${defaultMs} (empf.)`;
+  } else {
+    strip.style.display = 'none';
+  }
+  updateWaitDisplay();
 }
 
-function onUserSourceChange() {
-  const sel = document.getElementById('brute-userlist').value;
-  document.getElementById('brute-users-group').style.display = sel ? 'none' : '';
+function updateWaitDisplay() {
+  const proto  = document.getElementById('brute-protocol').value;
+  const hint   = protoHints[proto] || { wait_ms: 0 };
+  const raw    = document.getElementById('brute-wait-ms').value;
+  const ms     = raw !== '' ? parseInt(raw) : hint.wait_ms;
+  const s      = Math.floor(ms / 1000);
+  const label  = document.getElementById('wait-eff-label');
+  label.textContent = raw !== '' ? `→ Hydra: ${s} s` : '';
 }
 
-function onPassSourceChange() {
-  const sel = document.getElementById('brute-passlist').value;
-  document.getElementById('brute-passes-group').style.display = sel ? 'none' : '';
+// ── Wordlist picker ───────────────────────────────────────────
+function selectWL(type, btn, val) {
+  const picker  = document.getElementById(type + '-picker');
+  const manual  = document.getElementById(type + '-manual-row');
+  const upload  = document.getElementById(type + '-upload-panel');
+  const infoEl  = document.getElementById(type + '-sel-info');
+
+  picker.querySelectorAll('.wl-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const isUpload = btn.classList.contains('wl-upload');
+  const isManual = val === '' && !isUpload;
+
+  if (manual)  manual.style.display  = isManual  ? '' : 'none';
+  if (upload)  upload.style.display  = isUpload  ? '' : 'none';
+
+  if (type === 'user') {
+    selectedUser = isUpload ? '__upload__' : val;
+    infoEl.textContent = val ? val : (isUpload ? 'Eigene Liste' : 'Manuell');
+  } else {
+    selectedPass = isUpload ? '__upload__' : val;
+    infoEl.textContent = val ? val : (isUpload ? 'Eigene Liste' : 'Manuell');
+  }
 }
 
 function loadWordlists() {
   fetch(BASE + '/wordlists').then(r => r.json()).then(data => {
-    const uSel = document.getElementById('brute-userlist');
-    const pSel = document.getElementById('brute-passlist');
+    protoHints = data.hints || {};
+    onProtocolChange();  // Apply hint for default protocol
 
-    for (const item of data.usernames || []) {
-      const opt = document.createElement('option');
-      opt.value = item.name;
-      opt.textContent = `${item.name}  (${item.lines.toLocaleString()} Einträge)`;
-      uSel.appendChild(opt);
-    }
-
-    for (const item of data.passwords || []) {
-      const opt = document.createElement('option');
-      opt.value = item.name;
-      opt.textContent = `${item.name}  (${item.lines.toLocaleString()} Einträge)`;
-      pSel.appendChild(opt);
-      // Pre-select the short default list
-      if (item.name === 'top-passwords-shortlist.txt') opt.selected = true;
-    }
-    onPassSourceChange();
+    buildPicker('user', data.usernames || [], selectedUser);
+    buildPicker('pass', data.passwords || [], selectedPass);
   }).catch(() => {});
 }
 
+function buildPicker(type, items, defaultVal) {
+  const picker = document.getElementById(type + '-picker');
+  // Keep the 'Manuell' button (first child), remove the rest
+  while (picker.children.length > 1) picker.removeChild(picker.lastChild);
+
+  const manual = picker.firstElementChild;
+  manual.onclick = () => selectWL(type, manual, '');
+
+  for (const item of items) {
+    const btn = document.createElement('button');
+    btn.className = 'wl-btn' + (item.custom ? ' custom-list' : '');
+    btn.dataset.val = item.name;
+    const shortName = item.name.replace('.txt', '').replace(/-betterdefaultpasslist/, '-defaults');
+    const updDot = (updateInfo[item.name] && updateInfo[item.name].update_available)
+      ? '<span class="upd-dot" title="Update verfügbar"></span>' : '';
+    btn.innerHTML = `${shortName} <span style="opacity:.6;font-size:10px">(${item.lines.toLocaleString()})</span>${updDot}`;
+    btn.onclick = () => selectWL(type, btn, item.name);
+    picker.appendChild(btn);
+  }
+
+  // Upload button
+  const upBtn = document.createElement('button');
+  upBtn.className = 'wl-btn wl-upload';
+  upBtn.textContent = '+ Eigene';
+  upBtn.onclick = () => selectWL(type, upBtn, '');
+  picker.appendChild(upBtn);
+
+  // Activate default
+  const all = picker.querySelectorAll('.wl-btn');
+  let activated = false;
+  all.forEach(b => {
+    if (b.dataset.val === defaultVal) {
+      selectWL(type, b, defaultVal);
+      activated = true;
+    }
+  });
+  if (!activated) selectWL(type, manual, '');
+}
+
+// ── Upload / URL fetch ────────────────────────────────────────
+function uploadWLFile(category, inputId) {
+  const input = document.getElementById(inputId);
+  const type  = category === 'usernames' ? 'user' : 'pass';
+  const statusEl = document.getElementById(type + '-upload-status');
+  if (!input.files.length) return;
+
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  statusEl.textContent = 'Hochladen…';
+
+  fetch(BASE + `/wordlists/upload?category=${category}`, { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        statusEl.style.color = 'var(--ha-success)';
+        statusEl.textContent = `✓ ${d.name}  (${d.lines.toLocaleString()} Einträge)`;
+        loadWordlists();  // Refresh picker
+      } else {
+        statusEl.style.color = 'var(--ha-error)';
+        statusEl.textContent = '✗ ' + (d.error || 'Fehler');
+      }
+    })
+    .catch(e => { statusEl.style.color = 'var(--ha-error)'; statusEl.textContent = '✗ ' + e; });
+}
+
+function fetchWLUrl(category, inputId) {
+  const url    = document.getElementById(inputId).value.trim();
+  const type   = category === 'usernames' ? 'user' : 'pass';
+  const statusEl = document.getElementById(type + '-upload-status');
+  if (!url) return;
+
+  statusEl.style.color = 'var(--ha-text-dim)';
+  statusEl.textContent = 'Lade URL…';
+
+  fetch(BASE + `/wordlists/upload?category=${category}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      statusEl.style.color = 'var(--ha-success)';
+      statusEl.textContent = `✓ ${d.name}  (${d.lines.toLocaleString()} Einträge)`;
+      loadWordlists();
+    } else {
+      statusEl.style.color = 'var(--ha-error)';
+      statusEl.textContent = '✗ ' + (d.error || 'Fehler');
+    }
+  }).catch(e => { statusEl.style.color = 'var(--ha-error)'; statusEl.textContent = '✗ ' + e; });
+}
+
+// ── Update checks ─────────────────────────────────────────────
+function checkUpdates() {
+  const btn = document.getElementById('update-check-btn');
+  btn.textContent = '🔄 Prüfe…';
+  btn.disabled = true;
+
+  fetch(BASE + '/wordlists/check-updates')
+    .then(r => r.json())
+    .then(data => {
+      updateInfo = data;
+      btn.textContent = '🔄 Updates prüfen';
+      btn.disabled = false;
+
+      const bar = document.getElementById('update-status-bar');
+      const updatable = Object.entries(data).filter(([,v]) => v.update_available);
+      const errors    = Object.entries(data).filter(([,v]) => v.update_available === null);
+
+      if (!updatable.length && !errors.length) {
+        bar.style.display = 'block';
+        bar.innerHTML = `<span style="color:var(--ha-success);font-size:12px">✓ Alle Listen aktuell</span>`;
+        document.getElementById('update-all-btn').style.display = 'none';
+      } else {
+        let html = '';
+        for (const [fname, info] of updatable) {
+          const diff = info.remote_size - info.local_size;
+          html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--ha-border)">
+            <span style="font-size:12px;color:var(--ha-warning)">⬆ ${fname.replace('.txt','')}
+              <span style="font-size:10px;opacity:.6">${diff > 0 ? '+' : ''}${(diff/1024).toFixed(1)} KB</span>
+            </span>
+            <button class="ha-btn ha-btn-ghost" style="height:24px;font-size:11px;padding:0 8px"
+              onclick="updateList('${_cat(fname)}','${fname}',this)">Aktualisieren</button>
+          </div>`;
+        }
+        for (const [fname, info] of errors) {
+          html += `<div style="font-size:11px;color:var(--ha-error);padding:4px 0">✗ ${fname}: ${info.error}</div>`;
+        }
+        bar.innerHTML = html;
+        bar.style.display = 'block';
+        document.getElementById('update-all-btn').style.display = updatable.length ? '' : 'none';
+      }
+      // Refresh buttons to show update dots
+      loadWordlists();
+    })
+    .catch(e => {
+      btn.textContent = '🔄 Updates prüfen';
+      btn.disabled = false;
+      document.getElementById('update-status-bar').innerHTML =
+        `<span style="color:var(--ha-error);font-size:12px">✗ Fehler: ${e}</span>`;
+      document.getElementById('update-status-bar').style.display = 'block';
+    });
+}
+
+function _cat(fname) {
+  // Determine category from filename
+  const userFiles = ['top-usernames-shortlist.txt', 'cirt-default-usernames.txt'];
+  return userFiles.includes(fname) ? 'usernames' : 'passwords';
+}
+
+function updateList(category, fname, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⬇…'; }
+  fetch(BASE + '/wordlists/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category, file: fname }),
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      if (btn) { btn.textContent = '✓'; btn.style.color = 'var(--ha-success)'; }
+      delete updateInfo[fname];
+      loadWordlists();
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = 'Fehler'; }
+    }
+  }).catch(() => { if (btn) { btn.disabled = false; btn.textContent = 'Fehler'; } });
+}
+
+function updateAllLists() {
+  const updatable = Object.entries(updateInfo).filter(([,v]) => v.update_available);
+  for (const [fname] of updatable) {
+    updateList(_cat(fname), fname, null);
+  }
+  document.getElementById('update-all-btn').style.display = 'none';
+}
+
+// ── Brute start / results ─────────────────────────────────────
 function clearBrute() {
   document.getElementById('brute-output').innerHTML = '';
   document.getElementById('brute-results').innerHTML = `
@@ -867,44 +1150,45 @@ function clearBrute() {
 }
 
 function startBrute() {
-  const target   = document.getElementById('brute-target').value.trim();
-  const proto    = document.getElementById('brute-protocol').value;
-  const port     = document.getElementById('brute-port').value.trim();
-  const tasks    = document.getElementById('brute-tasks').value;
-  const wait     = document.getElementById('brute-wait').value;
-  const userlist = document.getElementById('brute-userlist').value;
-  const passlist = document.getElementById('brute-passlist').value;
-  const users    = document.getElementById('brute-users').value.trim() || 'admin';
-  const passes   = document.getElementById('brute-passes').value.trim();
+  const target = document.getElementById('brute-target').value.trim();
+  const proto  = document.getElementById('brute-protocol').value;
+  const port   = document.getElementById('brute-port').value.trim();
+  const tasks  = document.getElementById('brute-tasks').value;
+  const waitMs = document.getElementById('brute-wait-ms').value;
+  const users  = document.getElementById('brute-users').value.trim() || 'admin';
+  const passes = document.getElementById('brute-passes').value.trim();
 
   if (!target) { document.getElementById('brute-target').focus(); return; }
-  if (!passlist && !passes) { document.getElementById('brute-passes').focus(); return; }
 
-  const sshLike = ['ssh','rdp','smb'].includes(proto);
-  const effectiveTasks = tasks || (sshLike ? '1' : '4');
-  const effectiveWait  = wait  || (sshLike ? '3' : '0');
+  const usingUserList = selectedUser && selectedUser !== '__upload__';
+  const usingPassList = selectedPass && selectedPass !== '__upload__';
+
+  if (!usingPassList && !passes) { document.getElementById('brute-passes').focus(); return; }
+
+  // Determine effective ms (use hint default if field empty)
+  const hint    = protoHints[proto] || { tasks: 4, wait_ms: 0 };
+  const effMs   = waitMs !== '' ? parseInt(waitMs) : hint.wait_ms;
+  const effS    = Math.floor(effMs / 1000);
+  const effT    = tasks || String(hint.tasks);
 
   clearBrute();
-
-  const userLabel = userlist || users;
-  const passLabel = passlist || passes;
   appendLine('brute', `▶ Hydra → ${proto}://${target}${port ? ':'+port : ''}`, 'tl-info');
-  appendLine('brute', `  Users:  ${userLabel}`, 'tl-dim');
-  appendLine('brute', `  Passes: ${passLabel}`, 'tl-dim');
-  appendLine('brute', `  Tasks: ${effectiveTasks}  Wait: ${effectiveWait}s`, 'tl-dim');
+  appendLine('brute', `  Users:  ${usingUserList ? selectedUser : users}`, 'tl-dim');
+  appendLine('brute', `  Passes: ${usingPassList ? selectedPass : passes}`, 'tl-dim');
+  appendLine('brute', `  Tasks: ${effT}  |  Wait: ${effMs} ms → Hydra ${effS} s`, 'tl-dim');
+  if (effMs < 1000 && effMs > 0)
+    appendLine('brute', `  ⚠ Wartezeit < 1000ms → Hydra rundet auf 0 s`, 'tl-warn');
 
-  const params = new URLSearchParams({ target, protocol: proto, tasks: effectiveTasks, wait: effectiveWait });
-  if (port)     params.set('port', port);
-  if (userlist) params.set('userlist', userlist);
-  else          params.set('usernames', users);
-  if (passlist) params.set('passlist', passlist);
-  else          params.set('passwords', passes);
+  const params = new URLSearchParams({ target, protocol: proto, tasks: effT, wait_ms: effMs });
+  if (port) params.set('port', port);
+  if (usingUserList) params.set('userlist', selectedUser);
+  else               params.set('usernames', users);
+  if (usingPassList) params.set('passlist', selectedPass);
+  else               params.set('passwords', passes);
 
   const foundCreds = [];
-
   startStream('brute', `/scan/brute?${params}`,
     (line) => {
-      // Hydra found: [PORT][PROTO] host: X   login: Y   password: Z
       const m = line.match(/\[(\d+)\]\[([^\]]+)\]\s+host:\s*(\S+)\s+login:\s*(\S+)\s+password:\s*(.+)/i);
       if (m) foundCreds.push({ port: m[1], proto: m[2], host: m[3], login: m[4], pass: m[5].trim() });
     },
@@ -919,9 +1203,9 @@ function renderBruteResults(creds) {
       <div class="icon">🔒</div><div>Keine Zugangsdaten gefunden</div></div></div>`;
     return;
   }
-
   let html = `<div class="res-card">
-    <div class="res-card-title" style="color:#ce93d8">🔑 Gefundene Credentials <span style="color:var(--ha-accent);margin-left:6px">${creds.length}</span></div>`;
+    <div class="res-card-title" style="color:#ce93d8">🔑 Gefundene Credentials
+      <span style="color:var(--ha-accent);margin-left:6px">${creds.length}</span></div>`;
   for (const c of creds) {
     html += `<div class="wlan-net" style="border-color:rgba(123,31,162,0.4)">
       <div class="wlan-ssid" style="color:#ce93d8">${c.proto}://${c.host}:${c.port}</div>
