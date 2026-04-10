@@ -2,8 +2,12 @@
 import subprocess
 import shutil
 import os
+import re
 import tempfile
 from flask import Flask, render_template, request, Response, stream_with_context, jsonify
+
+# Valid username chars for SSH/FTP/common services
+_VALID_USER_RE = re.compile(r'^[a-zA-Z0-9_\-\.@]{1,64}$')
 
 app = Flask(__name__)
 
@@ -187,11 +191,29 @@ def _safe_wordlist_path(subdir, filename):
     return full if os.path.isfile(full) else None
 
 
+def _filter_userlist_file(src_path):
+    """Return a cleaned temp file with only valid username entries."""
+    valid = []
+    with open(src_path, errors="ignore") as f:
+        for line in f:
+            u = line.strip()
+            if u and _VALID_USER_RE.match(u):
+                valid.append(u)
+    if not valid:
+        return None, []
+    tf = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, prefix="recon_users_")
+    tf.write("\n".join(valid) + "\n")
+    tf.close()
+    return tf.name, valid
+
+
 @app.route("/scan/brute")
 def scan_brute():
     target    = request.args.get("target",    "").strip()
     protocol  = request.args.get("protocol",  "ssh").strip()
     port      = request.args.get("port",      "").strip()
+    tasks     = request.args.get("tasks",     "").strip()   # parallel hydra tasks
+    wait      = request.args.get("wait",      "").strip()   # seconds between retries
     # Wordlist file names (from /app/wordlists/)
     userlist  = request.args.get("userlist",  "").strip()
     passlist  = request.args.get("passlist",  "").strip()
@@ -202,19 +224,32 @@ def scan_brute():
     if not target:
         return Response("data: [ERROR] Kein Ziel angegeben\n\n", mimetype="text/event-stream")
 
+    # Protocol defaults for tasks/wait (SSH is restrictive)
+    ssh_like = protocol in ("ssh", "rdp", "smb")
+    default_tasks = "1" if ssh_like else "4"
+    default_wait  = "3" if ssh_like else "0"
+
+    t = tasks if tasks.isdigit() and 1 <= int(tasks) <= 16 else default_tasks
+    w = wait  if wait.isdigit()  and 0 <= int(wait)  <= 30 else default_wait
+
     tmp_files = []
 
     try:
-        cmd = ["hydra", "-t", "4", "-V"]
+        cmd = ["hydra", "-t", t, "-W", w, "-V"]
 
         # ── Username source ───────────────────────────────────────
         if userlist:
-            path = _safe_wordlist_path("usernames", userlist)
-            if not path:
+            src = _safe_wordlist_path("usernames", userlist)
+            if not src:
                 return Response("data: [ERROR] Ungültige Username-Liste\n\n", mimetype="text/event-stream")
-            cmd += ["-L", path]
+            filtered, valid = _filter_userlist_file(src)
+            if not filtered:
+                return Response("data: [ERROR] Liste enthält keine gültigen Einträge\n\n", mimetype="text/event-stream")
+            tmp_files.append(filtered)
+            cmd += ["-L", filtered]
+            # Echo stats as first SSE line later (done via initial appendLine in JS)
         else:
-            user_list = [u.strip() for u in usernames.split(",") if u.strip()] or ["admin"]
+            user_list = [u.strip() for u in usernames.split(",") if u.strip() and _VALID_USER_RE.match(u.strip())] or ["admin"]
             if len(user_list) == 1:
                 cmd += ["-l", user_list[0]]
             else:
