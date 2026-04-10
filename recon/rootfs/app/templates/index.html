@@ -169,6 +169,14 @@
   .wlan-meta span { font-size: 11px; color: var(--ha-text-dim); }
   .wlan-meta .val { color: var(--ha-text); }
 
+  /* Port attack buttons */
+  .port-attack-btn {
+    background: none; border: 1px solid var(--ha-border); border-radius: 5px;
+    padding: 2px 6px; font-size: 13px; cursor: pointer; margin-left: 3px;
+    transition: all 0.15s; opacity: 0.6;
+  }
+  .port-attack-btn:hover { opacity: 1; border-color: var(--ha-accent); background: rgba(3,169,244,0.1); }
+
   /* Brute Force button */
   .ha-btn-brute { background: #7b1fa2; color: #fff; }
   .ha-btn-brute:hover { background: #6a1b9a; }
@@ -219,6 +227,8 @@
     <span class="ha-chip {{ 'ok' if has_iw else 'warn' }}"><span class="dot"></span>iw</span>
     <span class="ha-chip {{ 'ok' if has_airodump else 'warn' }}"><span class="dot"></span>airodump</span>
     <span class="ha-chip {{ 'ok' if has_hydra else 'warn' }}"><span class="dot"></span>hydra</span>
+    <span class="ha-chip {{ 'ok' if has_nikto else 'warn' }}"><span class="dot"></span>nikto</span>
+    <span class="ha-chip {{ 'ok' if has_ffuf else 'warn' }}"><span class="dot"></span>ffuf</span>
   </div>
 </div>
 
@@ -228,6 +238,7 @@
     <button class="ha-tab active" onclick="switchTab('ip',this)">🔍 IP / Port Scanner</button>
     <button class="ha-tab" onclick="switchTab('wlan',this)">📶 WLAN Scanner</button>
     <button class="ha-tab" onclick="switchTab('brute',this)">🔐 Brute Force</button>
+    <button class="ha-tab" onclick="switchTab('web',this)">🌐 Web Tools</button>
   </div>
 
   <!-- ══ IP SCANNER ══ -->
@@ -337,6 +348,22 @@
           <label class="ha-label">Port (opt.)</label>
           <input class="ha-input" id="brute-port" type="text"
             placeholder="Auto" style="min-width:75px;max-width:90px" />
+        </div>
+        <div class="ha-form-group" id="brute-path-group" style="display:none">
+          <label class="ha-label">Pfad (HTTP)</label>
+          <input class="ha-input" id="brute-path" type="text"
+            placeholder="/login" style="min-width:110px;max-width:160px" list="brute-path-list" />
+          <datalist id="brute-path-list">
+            <option value="/"></option>
+            <option value="/login"></option>
+            <option value="/admin"></option>
+            <option value="/admin/login"></option>
+            <option value="/wp-login.php"></option>
+            <option value="/user/login"></option>
+            <option value="/signin"></option>
+            <option value="/auth"></option>
+            <option value="/panel"></option>
+          </datalist>
         </div>
         <div class="ha-form-group">
           <label class="ha-label">Tasks</label>
@@ -474,6 +501,119 @@
           <div class="res-placeholder">
             <div class="icon">🔑</div>
             <div>Gefundene<br>Zugangsdaten<br>erscheinen hier</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══ WEB TOOLS ══ -->
+  <div id="tab-web" class="ha-panel">
+
+    <!-- ── Nikto ── -->
+    <div class="ha-card" style="flex-shrink:0">
+      <div class="ha-card-title">🕷 Nikto — Web Vulnerability Scanner</div>
+      <div class="ha-form-row">
+        <div class="ha-form-group">
+          <label class="ha-label">Ziel (IP / Hostname)</label>
+          <input class="ha-input" id="nikto-target" type="text"
+            placeholder="192.168.1.1" style="min-width:220px" />
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">Port (opt.)</label>
+          <input class="ha-input" id="nikto-port" type="text"
+            placeholder="80" style="min-width:80px;max-width:100px" />
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">SSL</label>
+          <select class="ha-select" id="nikto-ssl" style="min-width:90px">
+            <option value="0">HTTP</option>
+            <option value="1">HTTPS</option>
+          </select>
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="ha-btn ha-btn-primary" id="nikto-start-btn" onclick="startNikto()">▶ Scan</button>
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="ha-btn ha-btn-danger" id="nikto-stop-btn" style="display:none" onclick="stopScan('nikto')">■ Stop</button>
+        </div>
+      </div>
+      <div class="ha-info-strip" style="margin-top:10px">
+        Nikto scannt auf bekannte CVEs, Fehlkonfigurationen, Admin-Interfaces, sensible Dateien und HTTP-Methoden.
+        Ergebnisse erscheinen live im Terminal.
+      </div>
+    </div>
+
+    <!-- ── ffuf ── -->
+    <div class="ha-card" style="flex-shrink:0">
+      <div class="ha-card-title">💥 ffuf — Directory / Path Fuzzing</div>
+      <div class="ha-form-row">
+        <div class="ha-form-group">
+          <label class="ha-label">Ziel-URL (FUZZ = Platzhalter)</label>
+          <input class="ha-input" id="ffuf-target" type="text"
+            placeholder="http://192.168.1.1/FUZZ" style="min-width:300px" />
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">Wordlist</label>
+          <select class="ha-select" id="ffuf-wordlist">
+            <option value="common.txt">common.txt (4 750)</option>
+            <option value="big.txt">big.txt (20 481)</option>
+            <option value="raft-medium-directories.txt">raft-medium (30 k)</option>
+          </select>
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">Threads</label>
+          <select class="ha-select" id="ffuf-threads" style="min-width:80px">
+            <option value="10">10</option>
+            <option value="40" selected>40</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">Extensions (opt.)</label>
+          <input class="ha-input" id="ffuf-ext" type="text"
+            placeholder=".php,.html" style="min-width:110px;max-width:130px" />
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="ha-btn ha-btn-primary" id="ffuf-start-btn" onclick="startFfuf()">▶ Fuzz</button>
+        </div>
+        <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="ha-btn ha-btn-danger" id="ffuf-stop-btn" style="display:none" onclick="stopScan('ffuf')">■ Stop</button>
+        </div>
+      </div>
+      <div class="ha-info-strip" style="margin-top:10px">
+        Findet versteckte Verzeichnisse, Admin-Panels, Config-Dateien und Backups.
+        <code>FUZZ</code> im URL ist der Platzhalter — wird automatisch ergänzt falls nicht angegeben.
+      </div>
+    </div>
+
+    <!-- ── Output area ── -->
+    <div class="split-area">
+      <div class="ha-terminal-card">
+        <div class="ha-terminal-topbar">
+          <div class="ha-terminal-title">
+            🌐 Web Tools Output
+            <div class="ha-scanning-dot" id="web-scanning">
+              <div class="pulse-dot"></div> Läuft…
+            </div>
+          </div>
+          <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+            onclick="clearWeb()">Leeren</button>
+        </div>
+        <div class="ha-terminal-body" id="web-output"><span class="tl tl-dim">Nikto oder ffuf starten…</span>
+</div>
+      </div>
+
+      <div class="results-panel" id="web-results">
+        <div class="res-card" style="flex:1;display:flex;align-items:center;justify-content:center">
+          <div class="res-placeholder">
+            <div class="icon">🌐</div>
+            <div>Gefundene Pfade<br>und Schwachstellen<br>erscheinen hier</div>
           </div>
         </div>
       </div>
@@ -740,14 +880,29 @@ function renderNmapResults(lines) {
       html += `<div class="res-card">
         <div class="res-card-title">🔓 Offene Ports <span style="color:var(--ha-accent);margin-left:6px">${openPorts.length}</span></div>
         <table class="ports-table">
-          <thead><tr><th>Port</th><th>Service</th><th>Version</th></tr></thead>
+          <thead><tr><th>Port</th><th>Service</th><th>Version</th><th></th></tr></thead>
           <tbody>`;
       for (const p of openPorts) {
         const ver = p.version && p.version !== '' ? p.version : '–';
+        const hydraProto = serviceToHydraProto(p.service, p.port);
+        const webTool    = serviceToWebTool(p.service, p.port);
+        const target     = h.target.split(' ')[0]; // strip "(IP)" part
+
+        let actionBtns = '';
+        if (hydraProto) {
+          actionBtns += `<button class="port-attack-btn" title="Brute Force starten"
+            onclick="launchBrute('${target}','${p.port}','${hydraProto}')">🔐</button>`;
+        }
+        if (webTool) {
+          actionBtns += `<button class="port-attack-btn" title="Web Scan starten"
+            onclick="launchWeb('${target}','${p.port}','${webTool}')">🌐</button>`;
+        }
+
         html += `<tr>
           <td><span class="port-num">${p.port}</span><span style="color:var(--ha-text-dim);font-size:10px">/${p.proto}</span></td>
           <td class="port-service">${p.service}</td>
           <td class="port-version">${ver}</td>
+          <td style="white-space:nowrap">${actionBtns}</td>
         </tr>`;
       }
       html += `</tbody></table></div>`;
@@ -907,13 +1062,18 @@ function onProtocolChange() {
   const strip = document.getElementById('proto-hint-strip');
   const badge = document.getElementById('wait-hint-badge');
 
+  // Show/hide HTTP path field
+  const isHttp = proto.startsWith('http');
+  document.getElementById('brute-path-group').style.display = isHttp ? '' : 'none';
+  if (isHttp && !document.getElementById('brute-path').value)
+    document.getElementById('brute-path').value = '/';
+
   if (hint) {
     const defaultMs = hint.wait_ms;
     strip.textContent = hint.note +
       `  →  Tasks: ${hint.tasks},  empf. Wartezeit: ${defaultMs} ms (Hydra: ${Math.floor(defaultMs/1000)} s)`;
     strip.style.display = 'block';
     badge.title = `Empfehlung: ${defaultMs} ms`;
-    // Set placeholder
     const wf = document.getElementById('brute-wait-ms');
     if (!wf.dataset.manual) wf.placeholder = `${defaultMs} (empf.)`;
   } else {
@@ -1153,6 +1313,7 @@ function startBrute() {
   const target = document.getElementById('brute-target').value.trim();
   const proto  = document.getElementById('brute-protocol').value;
   const port   = document.getElementById('brute-port').value.trim();
+  const path   = document.getElementById('brute-path').value.trim() || '/';
   const tasks  = document.getElementById('brute-tasks').value;
   const waitMs = document.getElementById('brute-wait-ms').value;
   const users  = document.getElementById('brute-users').value.trim() || 'admin';
@@ -1181,6 +1342,7 @@ function startBrute() {
 
   const params = new URLSearchParams({ target, protocol: proto, tasks: effT, wait_ms: effMs });
   if (port) params.set('port', port);
+  if (proto.startsWith('http')) params.set('path', path);
   if (usingUserList) params.set('userlist', selectedUser);
   else               params.set('usernames', users);
   if (usingPassList) params.set('passlist', selectedPass);
@@ -1217,6 +1379,193 @@ function renderBruteResults(creds) {
   }
   html += `</div>`;
   panel.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════
+// ── WEB TOOLS ─────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+
+function clearWeb() {
+  document.getElementById('web-output').innerHTML = '';
+  document.getElementById('web-results').innerHTML = `
+    <div class="res-card" style="flex:1;display:flex;align-items:center;justify-content:center">
+      <div class="res-placeholder"><div class="icon">🌐</div>
+      <div>Gefundene Pfade<br>und Schwachstellen<br>erscheinen hier</div></div></div>`;
+}
+
+const webFindings = { nikto: [], ffuf: [] };
+
+function startNikto() {
+  const target = document.getElementById('nikto-target').value.trim();
+  const port   = document.getElementById('nikto-port').value.trim();
+  const ssl    = document.getElementById('nikto-ssl').value;
+  if (!target) { document.getElementById('nikto-target').focus(); return; }
+
+  clearWeb();
+  appendLine('web', `▶ Nikto → ${ssl==='1'?'https':'http'}://${target}${port?':'+port:''}`, 'tl-info');
+
+  webFindings.nikto = [];
+  const params = new URLSearchParams({ target, ssl });
+  if (port) params.set('port', port);
+
+  startStream('web', `/scan/nikto?${params}`,
+    (line) => {
+      if (line.startsWith('+ ') || line.startsWith('- ')) {
+        webFindings.nikto.push(line);
+        renderWebResults();
+      }
+    },
+    () => {}
+  );
+}
+
+function startFfuf() {
+  let target = document.getElementById('ffuf-target').value.trim();
+  const wl      = document.getElementById('ffuf-wordlist').value;
+  const threads = document.getElementById('ffuf-threads').value;
+  const ext     = document.getElementById('ffuf-ext').value.trim();
+  if (!target) { document.getElementById('ffuf-target').focus(); return; }
+  if (!target.includes('FUZZ')) target = target.replace(/\/?$/, '/FUZZ');
+
+  clearWeb();
+  appendLine('web', `▶ ffuf → ${target}  [${wl}]`, 'tl-info');
+
+  webFindings.ffuf = [];
+  const params = new URLSearchParams({ target, wordlist: wl, threads });
+  if (ext) params.set('ext', ext);
+
+  startStream('web', `/scan/ffuf?${params}`,
+    (line) => {
+      // ffuf found line contains [Status: 200 ...] or similar
+      if (line.includes('[Status:') && !line.includes('[Status: 404')) {
+        webFindings.ffuf.push(line);
+        renderWebResults();
+      }
+    },
+    () => {}
+  );
+}
+
+function renderWebResults() {
+  const panel = document.getElementById('web-results');
+  let html = '';
+
+  if (webFindings.nikto.length) {
+    html += `<div class="res-card">
+      <div class="res-card-title" style="color:#4fc3f7">🕷 Nikto Findings <span style="color:var(--ha-accent);margin-left:6px">${webFindings.nikto.length}</span></div>`;
+    for (const f of webFindings.nikto) {
+      const isCve = /CVE|OSVDB/i.test(f);
+      html += `<div style="font-size:11px;padding:4px 0;border-bottom:1px solid var(--ha-border);
+        color:${isCve?'var(--ha-error)':'var(--ha-text-dim)'}">${f}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (webFindings.ffuf.length) {
+    html += `<div class="res-card">
+      <div class="res-card-title" style="color:#a5d6a7">💥 ffuf Findings <span style="color:var(--ha-accent);margin-left:6px">${webFindings.ffuf.length}</span></div>`;
+    for (const f of webFindings.ffuf) {
+      const m = f.match(/\* FUZZ: (.+?)[\s\[]/);
+      const path = m ? m[1] : f;
+      html += `<div style="font-size:11px;padding:4px 0;border-bottom:1px solid var(--ha-border);
+        color:var(--ha-success)">${path}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (!html) {
+    panel.innerHTML = `<div class="res-card" style="flex:1;display:flex;align-items:center;justify-content:center">
+      <div class="res-placeholder"><div class="icon">🌐</div><div>Keine Findings bisher</div></div></div>`;
+    return;
+  }
+  panel.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════
+// ── CLICK-TO-ATTACK (Port → Brute Force / Web Tools) ──────────
+// ══════════════════════════════════════════════════════════════
+
+const SERVICE_TO_PROTO = {
+  'ssh': 'ssh', 'sftp': 'ssh',
+  'ftp': 'ftp', 'ftps': 'ftp',
+  'http': 'http-get', 'http-proxy': 'http-get',
+  'https': 'https-get', 'ssl/http': 'https-get', 'ssl/https': 'https-get',
+  'smtp': 'smtp', 'smtps': 'smtp',
+  'pop3': 'pop3', 'pop3s': 'pop3',
+  'imap': null,
+  'microsoft-ds': 'smb', 'netbios-ssn': 'smb', 'smb': 'smb',
+  'telnet': 'telnet',
+  'ms-wbt-server': 'rdp', 'rdp': 'rdp',
+};
+
+function serviceToHydraProto(service, port) {
+  const svc = (service || '').toLowerCase();
+  // Try service name first
+  for (const [k, v] of Object.entries(SERVICE_TO_PROTO)) {
+    if (svc.includes(k)) return v;
+  }
+  // Fallback by port number
+  const portMap = { '21':'ftp','22':'ssh','23':'telnet','25':'smtp','80':'http-get',
+    '110':'pop3','143':'imap','443':'https-get','445':'smb','587':'smtp',
+    '3389':'rdp','3306':null,'5432':null,'6379':null };
+  return portMap[String(port)] ?? null;
+}
+
+function serviceToWebTool(service, port) {
+  const svc = (service || '').toLowerCase();
+  if (svc.includes('http') || ['80','443','8080','8443','8000','8888'].includes(String(port)))
+    return svc.includes('ssl') || port === '443' ? 'nikto-ssl' : 'nikto';
+  return null;
+}
+
+function launchBrute(target, port, protocol) {
+  // Switch to Brute Force tab
+  document.querySelectorAll('.ha-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.ha-panel').forEach(p => p.classList.remove('active'));
+  const bruteTab = [...document.querySelectorAll('.ha-tab')].find(t => t.textContent.includes('Brute'));
+  if (bruteTab) bruteTab.classList.add('active');
+  document.getElementById('tab-brute').classList.add('active');
+
+  // Fill fields
+  document.getElementById('brute-target').value = target;
+  document.getElementById('brute-port').value   = port;
+
+  const sel = document.getElementById('brute-protocol');
+  [...sel.options].forEach(o => { if (o.value === protocol) o.selected = true; });
+
+  // Trigger protocol change to update hints + path visibility
+  onProtocolChange();
+
+  // Flash confirmation
+  const flash = document.createElement('div');
+  flash.style.cssText = 'position:fixed;top:70px;right:16px;background:#7b1fa2;color:#fff;' +
+    'padding:10px 18px;border-radius:8px;font-size:13px;z-index:999;transition:opacity 0.5s';
+  flash.textContent = `🔐 Eingestellt: ${protocol}://${target}:${port}`;
+  document.body.appendChild(flash);
+  setTimeout(() => { flash.style.opacity = '0'; setTimeout(() => flash.remove(), 500); }, 2500);
+}
+
+function launchWeb(target, port, mode) {
+  // Switch to Web Tools tab
+  document.querySelectorAll('.ha-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.ha-panel').forEach(p => p.classList.remove('active'));
+  const webTab = [...document.querySelectorAll('.ha-tab')].find(t => t.textContent.includes('Web'));
+  if (webTab) webTab.classList.add('active');
+  document.getElementById('tab-web').classList.add('active');
+
+  const ssl = mode === 'nikto-ssl';
+  const proto = ssl ? 'https' : 'http';
+  document.getElementById('nikto-target').value = target;
+  document.getElementById('nikto-port').value   = port;
+  document.getElementById('nikto-ssl').value    = ssl ? '1' : '0';
+  document.getElementById('ffuf-target').value  = `${proto}://${target}:${port}/FUZZ`;
+
+  const flash = document.createElement('div');
+  flash.style.cssText = 'position:fixed;top:70px;right:16px;background:#0288d1;color:#fff;' +
+    'padding:10px 18px;border-radius:8px;font-size:13px;z-index:999;transition:opacity 0.5s';
+  flash.textContent = `🌐 Eingestellt: ${proto}://${target}:${port}`;
+  document.body.appendChild(flash);
+  setTimeout(() => { flash.style.opacity = '0'; setTimeout(() => flash.remove(), 500); }, 2500);
 }
 
 // ── Startup ───────────────────────────────────────────────────

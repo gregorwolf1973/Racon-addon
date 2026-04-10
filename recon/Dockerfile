@@ -11,6 +11,8 @@ RUN apk add --no-cache \
     iw \
     aircrack-ng \
     hydra \
+    nikto \
+    ffuf \
     curl \
     bash
 

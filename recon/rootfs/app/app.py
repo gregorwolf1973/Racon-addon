@@ -28,6 +28,11 @@ WORDLIST_SOURCES = {
         "top-usernames-shortlist.txt":  "Usernames/top-usernames-shortlist.txt",
         "cirt-default-usernames.txt":   "Usernames/cirt-default-usernames.txt",
     },
+    "webpaths": {
+        "common.txt":                 "Discovery/Web-Content/common.txt",
+        "big.txt":                    "Discovery/Web-Content/big.txt",
+        "raft-medium-directories.txt":"Discovery/Web-Content/raft-medium-directories.txt",
+    },
     "passwords": {
         "top-passwords-shortlist.txt":      "Passwords/Common-Credentials/top-passwords-shortlist.txt",
         "top-20-common-SSH-passwords.txt":  "Passwords/Common-Credentials/top-20-common-SSH-passwords.txt",
@@ -106,6 +111,8 @@ def index():
         has_iwlist=shutil.which("iwlist") is not None,
         has_airodump=shutil.which("airodump-ng") is not None,
         has_hydra=shutil.which("hydra") is not None,
+        has_nikto=shutil.which("nikto") is not None,
+        has_ffuf=shutil.which("ffuf") is not None,
     )
 
 
@@ -246,6 +253,7 @@ def list_wordlists():
     return jsonify({
         "usernames": scan("usernames"),
         "passwords": scan("passwords"),
+        "webpaths":  scan("webpaths"),
         "hints": PROTO_HINTS,
     })
 
@@ -358,6 +366,50 @@ def update_wordlist():
         return jsonify({"error": str(e)}), 500
 
 
+# ── Web Tools ──────────────────────────────────────────────────────────────────
+
+@app.route("/scan/nikto")
+def scan_nikto():
+    target = request.args.get("target", "").strip()
+    port   = request.args.get("port",   "").strip()
+    ssl    = request.args.get("ssl",    "").strip()
+    if not target:
+        return Response("data: [ERROR] Kein Ziel angegeben\n\n", mimetype="text/event-stream")
+    cmd = ["nikto", "-h", target, "-nointeractive"]
+    if port:
+        cmd += ["-p", port]
+    if ssl == "1":
+        cmd += ["-ssl"]
+    return run_streaming(cmd)
+
+
+@app.route("/scan/ffuf")
+def scan_ffuf():
+    target  = request.args.get("target",  "").strip()   # full URL with FUZZ placeholder
+    wl      = request.args.get("wordlist","common.txt").strip()
+    threads = request.args.get("threads", "40").strip()
+    ext     = request.args.get("ext",     "").strip()   # optional extensions, comma-separated
+
+    if not target:
+        return Response("data: [ERROR] Kein Ziel angegeben\n\n", mimetype="text/event-stream")
+    if "FUZZ" not in target:
+        target = target.rstrip("/") + "/FUZZ"
+
+    wl_path = _safe_wordlist_path("webpaths", wl)
+    if not wl_path:
+        return Response("data: [ERROR] Ungültige Wordlist\n\n", mimetype="text/event-stream")
+
+    try:
+        t = str(max(1, min(200, int(threads))))
+    except Exception:
+        t = "40"
+
+    cmd = ["ffuf", "-u", target, "-w", wl_path, "-t", t, "-v", "-noninteractive"]
+    if ext:
+        cmd += ["-e", ext]
+    return run_streaming(cmd)
+
+
 # ── Brute Force ────────────────────────────────────────────────────────────────
 
 def _filter_userlist_file(src_path):
@@ -381,6 +433,7 @@ def scan_brute():
     target   = request.args.get("target",   "").strip()
     protocol = request.args.get("protocol", "ssh").strip()
     port     = request.args.get("port",     "").strip()
+    path     = request.args.get("path",     "/").strip()  # for http-get/https-get
     # wait_ms: milliseconds from UI → convert to seconds for hydra
     wait_ms  = request.args.get("wait_ms",  "").strip()
     tasks    = request.args.get("tasks",    "").strip()
@@ -458,6 +511,9 @@ def scan_brute():
         if port:
             cmd += ["-s", port]
         cmd += [target, protocol]
+        # HTTP/HTTPS require a path as module-specific option
+        if protocol in ("http-get", "https-get", "http-post-form", "https-post-form"):
+            cmd.append(path or "/")
 
     except Exception as e:
         for f in tmp_files:
