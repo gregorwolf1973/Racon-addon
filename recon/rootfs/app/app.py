@@ -102,7 +102,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.2.2"
+ADDON_VERSION = "1.3.0"
 
 @app.route("/")
 def index():
@@ -309,6 +309,25 @@ def upload_wordlist():
             return jsonify({"error": str(e)}), 500
 
     return jsonify({"error": "Keine Datei oder URL angegeben"}), 400
+
+
+@app.route("/wordlists/delete", methods=["POST"])
+def delete_wordlist():
+    """Delete a custom wordlist file."""
+    category = request.args.get("category", "").strip()
+    filename = request.args.get("filename", "").strip()
+    if category not in ("usernames", "passwords"):
+        return jsonify({"error": "Ungültige Kategorie"})
+    if not filename or "/" in filename or "\\" in filename:
+        return jsonify({"error": "Ungültiger Dateiname"})
+    _, custom_dir = _wordlist_dir(category)
+    filepath = os.path.realpath(os.path.join(custom_dir, filename))
+    if not filepath.startswith(os.path.realpath(custom_dir) + os.sep):
+        return jsonify({"error": "Zugriff verweigert"})
+    if not os.path.isfile(filepath):
+        return jsonify({"error": "Datei nicht gefunden"})
+    os.remove(filepath)
+    return jsonify({"ok": True, "deleted": filename})
 
 
 @app.route("/wordlists/check-updates")
