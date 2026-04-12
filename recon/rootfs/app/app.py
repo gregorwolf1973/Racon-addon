@@ -102,11 +102,14 @@ def run_streaming(cmd):
     )
 
 
+ADDON_VERSION = "1.1.8"
+
 @app.route("/")
 def index():
     return render_template(
         "index.html",
         ingress_path=INGRESS_PATH,
+        version=ADDON_VERSION,
         has_rustscan=shutil.which("rustscan") is not None,
         has_nmap=shutil.which("nmap") is not None,
         has_iw=shutil.which("iw") is not None,
