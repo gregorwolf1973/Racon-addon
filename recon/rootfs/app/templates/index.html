@@ -356,14 +356,14 @@
           <input class="ha-input" id="brute-path" type="text"
             placeholder="/login" style="width:100%;min-width:200px" list="brute-path-list" />
           <datalist id="brute-path-list">
+            <option value="/doLogin:uid=^USER^&passw=^PASS^&btnSubmit=Login:S=bank/main.jsp"></option>
             <option value="/login:user=^USER^&pass=^PASS^:F=incorrect"></option>
-            <option value="/doLogin:uid=^USER^&passw=^PASS^&btnSubmit=Login:F=incorrect"></option>
+            <option value="/login:username=^USER^&password=^PASS^:F=incorrect"></option>
             <option value="/wp-login.php:log=^USER^&pwd=^PASS^&wp-submit=Login:F=incorrect"></option>
             <option value="/admin/login:username=^USER^&password=^PASS^:F=Invalid"></option>
             <option value="/"></option>
             <option value="/login"></option>
             <option value="/admin"></option>
-            <option value="/admin/login"></option>
             <option value="/wp-login.php"></option>
           </datalist>
         </div>
