@@ -1131,11 +1131,17 @@ async function autoDetectLogin(btn) {
     document.getElementById('brute-pass-field').value = d.pass_field || '';
     document.getElementById('brute-detect-mode').value = d.detect_mode || 'F';
     document.getElementById('brute-detect-str').value  = d.detect_string || '';
-    // Store extra hidden/submit fields for buildHydraPath()
+    // Store extra hidden/submit fields and CSRF field name
     window._bruteExtraFields = d.extra_fields || {};
+    window._bruteCsrfField = d.csrf_field || '';
     const hint = document.getElementById('brute-detect-hint');
+    hint.style.color = '';
     const extras = Object.keys(d.extra_fields || {});
-    if (d.redirect_based) {
+    if (d.csrf_field) {
+      hint.textContent = `✓ CSRF-Schutz erkannt (Feld: ${d.csrf_field}). Verwende CSRF-Script statt Hydra.`;
+      hint.style.display = '';
+      hint.style.color = 'var(--ha-success)';
+    } else if (d.redirect_based) {
       hint.textContent = `ℹ Redirect-Login erkannt (→ ${d.fail_location}). `
         + `Erkennungstext ggf. anpassen — teste mit S= falls F= nicht funktioniert.`;
       hint.style.display = '';
@@ -1416,11 +1422,6 @@ function startBrute() {
   const target = document.getElementById('brute-target').value.trim();
   const proto  = document.getElementById('brute-protocol').value;
   const port   = document.getElementById('brute-port').value.trim();
-  const path   = buildHydraPath();
-  if (path === null) {
-    alert('Bitte Benutzername-Feld und Passwort-Feld ausfüllen oder Auto-Detect klicken.');
-    return;
-  }
   const tasks  = document.getElementById('brute-tasks').value;
   const waitMs = document.getElementById('brute-wait-ms').value;
   const users  = document.getElementById('brute-users').value.trim() || 'admin';
@@ -1433,32 +1434,73 @@ function startBrute() {
 
   if (!usingPassList && !passes) { document.getElementById('brute-passes').focus(); return; }
 
-  // Determine effective ms (use hint default if field empty)
-  const hint    = protoHints[proto] || { tasks: 4, wait_ms: 0 };
-  const effMs   = waitMs !== '' ? parseInt(waitMs) : hint.wait_ms;
-  const effS    = Math.floor(effMs / 1000);
-  const effT    = tasks || String(hint.tasks);
+  const hint  = protoHints[proto] || { tasks: 4, wait_ms: 0 };
+  const effMs = waitMs !== '' ? parseInt(waitMs) : hint.wait_ms;
+  const effT  = tasks || String(hint.tasks);
+
+  // Check if CSRF-protected HTTP POST form → use Python script
+  const isPost = proto.includes('post-form');
+  const csrfField = window._bruteCsrfField || '';
+  const useCsrf = isPost && csrfField;
+
+  if (isPost && !useCsrf) {
+    const path = buildHydraPath();
+    if (path === null) {
+      alert('Bitte Benutzername-Feld und Passwort-Feld ausfüllen oder Auto-Detect klicken.');
+      return;
+    }
+  }
 
   clearBrute();
-  appendLine('brute', `▶ Hydra → ${proto}://${target}${port ? ':'+port : ''}`, 'tl-info');
+  const engine = useCsrf ? 'CSRF-Script' : 'Hydra';
+  appendLine('brute', `▶ ${engine} → ${proto}://${target}${port ? ':'+port : ''}`, 'tl-info');
   appendLine('brute', `  Users:  ${usingUserList ? selectedUser : users}`, 'tl-dim');
   appendLine('brute', `  Passes: ${usingPassList ? selectedPass : passes}`, 'tl-dim');
-  appendLine('brute', `  Tasks: ${effT}  |  Wait: ${effMs} ms → Hydra ${effS} s`, 'tl-dim');
-  if (effMs < 1000 && effMs > 0)
-    appendLine('brute', `  ⚠ Wartezeit < 1000ms → Hydra rundet auf 0 s`, 'tl-warn');
+  appendLine('brute', `  Tasks: ${effT}  |  Wait: ${effMs} ms`, 'tl-dim');
+  if (useCsrf)
+    appendLine('brute', `  CSRF-Feld: ${csrfField} — Token wird pro Versuch neu geholt`, 'tl-info');
 
-  const params = new URLSearchParams({ target, protocol: proto, tasks: effT, wait_ms: effMs });
-  if (port) params.set('port', port);
-  if (proto.startsWith('http')) params.set('path', path);
-  if (usingUserList) params.set('userlist', selectedUser);
-  else               params.set('usernames', users);
-  if (usingPassList) params.set('passlist', selectedPass);
-  else               params.set('passwords', passes);
+  let scanUrl;
+  if (useCsrf) {
+    // CSRF-aware Python script
+    const loginUrl  = document.getElementById('brute-login-url').value.trim() || '/login';
+    const userField = document.getElementById('brute-user-field').value.trim();
+    const passField = document.getElementById('brute-pass-field').value.trim();
+    const mode      = document.getElementById('brute-detect-mode').value;
+    const str       = document.getElementById('brute-detect-str').value.trim();
+    const extra     = window._bruteExtraFields || {};
+    const extraStr  = Object.entries(extra)
+      .filter(([k]) => k !== userField && k !== passField && k !== csrfField)
+      .map(([k,v]) => `${k}=${v}`).join(',');
+
+    const params = new URLSearchParams({
+      target, protocol: proto, tasks: effT, wait_ms: effMs,
+      login_url: loginUrl, user_field: userField, pass_field: passField,
+      csrf_field: csrfField, detect_mode: mode, detect_str: str || 'incorrect'
+    });
+    if (port) params.set('port', port);
+    if (extraStr) params.set('extra_fields', extraStr);
+    if (usingUserList) params.set('userlist', selectedUser);
+    else               params.set('usernames', users);
+    if (usingPassList) params.set('passlist', selectedPass);
+    else               params.set('passwords', passes);
+    scanUrl = `/scan/brute-csrf?${params}`;
+  } else {
+    // Standard Hydra
+    const path = buildHydraPath();
+    const params = new URLSearchParams({ target, protocol: proto, tasks: effT, wait_ms: effMs });
+    if (port) params.set('port', port);
+    if (proto.startsWith('http')) params.set('path', path);
+    if (usingUserList) params.set('userlist', selectedUser);
+    else               params.set('usernames', users);
+    if (usingPassList) params.set('passlist', selectedPass);
+    else               params.set('passwords', passes);
+    scanUrl = `/scan/brute?${params}`;
+  }
 
   const foundCreds = [];
-  startStream('brute', `/scan/brute?${params}`,
+  startStream('brute', scanUrl,
     (line) => {
-      // Hydra output: [PORT][PROTO] host: X   [misc: ...]   login: Y   password: Z
       const m = line.match(/\[(\d+)\]\[([^\]]+)\].*host:\s*(\S+).*login:\s*(\S+).*password:\s*(.+)/i);
       if (m) foundCreds.push({ port: m[1], proto: m[2], host: m[3], login: m[4], pass: m[5].trim() });
     },

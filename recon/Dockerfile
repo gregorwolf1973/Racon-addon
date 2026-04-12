@@ -16,7 +16,7 @@ RUN apk add --no-cache \
     curl \
     bash
 
-RUN pip3 install flask --break-system-packages
+RUN pip3 install flask requests --break-system-packages
 
 # Copy rootfs into container
 COPY rootfs /

@@ -102,7 +102,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.3.1"
+ADDON_VERSION = "1.4.0"
 
 @app.route("/")
 def index():
@@ -591,11 +591,19 @@ def detect_login():
                     detect_string = kw
                     break
 
+        # Identify CSRF field name
+        csrf_field = ""
+        for name in extra:
+            if any(tok in name.lower() for tok in ["csrf", "token", "_token", "xsrf"]):
+                csrf_field = name
+                break
+
         return jsonify({
             "action": action_path,
             "user_field": user_field or "",
             "pass_field": pass_field or "",
             "extra_fields": extra,
+            "csrf_field": csrf_field,
             "detect_mode": detect_mode,
             "detect_string": detect_string,
             "redirect_based": redirect_based,
@@ -604,6 +612,82 @@ def detect_login():
 
     except Exception as e:
         return jsonify({"error": f"Auto-Detect Fehler: {e}"})
+
+
+# ── CSRF Brute Force ──────────────────────────────────────────────────────────
+
+@app.route("/scan/brute-csrf")
+def scan_brute_csrf():
+    target    = request.args.get("target",      "").strip()
+    login_url = request.args.get("login_url",   "/login").strip()
+    user_field= request.args.get("user_field",  "username").strip()
+    pass_field= request.args.get("pass_field",  "password").strip()
+    csrf_field= request.args.get("csrf_field",  "").strip()
+    detect_mode = request.args.get("detect_mode", "F").strip()
+    detect_str  = request.args.get("detect_str",  "incorrect").strip()
+    extra_fields= request.args.get("extra_fields","").strip()
+    port      = request.args.get("port",        "").strip()
+    tasks     = request.args.get("tasks",       "1").strip()
+    wait_ms   = request.args.get("wait_ms",     "0").strip()
+    userlist  = request.args.get("userlist",    "").strip()
+    passlist  = request.args.get("passlist",    "").strip()
+    usernames = request.args.get("usernames",   "").strip()
+    passwords = request.args.get("passwords",   "").strip()
+
+    if not target:
+        return Response("data: [ERROR] Kein Ziel angegeben\n\n", mimetype="text/event-stream")
+
+    # Determine if HTTPS
+    is_https = target.startswith("https") or request.args.get("protocol", "").startswith("https")
+    if not target.startswith("http"):
+        target = ("https://" if is_https else "http://") + target
+
+    cmd = ["python3", os.path.join(os.path.dirname(__file__), "csrf_brute.py"),
+           "--target", target,
+           "--login-url", login_url,
+           "--user-field", user_field,
+           "--pass-field", pass_field,
+           "--detect-mode", detect_mode,
+           "--detect-str", detect_str,
+           "--tasks", str(max(1, min(8, int(tasks) if tasks.isdigit() else 1))),
+           "--wait-ms", wait_ms if wait_ms.isdigit() else "0"]
+
+    if csrf_field:
+        cmd += ["--csrf-field", csrf_field]
+    if extra_fields:
+        cmd += ["--extra-fields", extra_fields]
+    if port:
+        cmd += ["--port", port]
+    if is_https:
+        cmd += ["--no-verify-ssl"]
+
+    # Username source
+    if userlist:
+        src = _safe_wordlist_path("usernames", userlist)
+        if not src:
+            return Response("data: [ERROR] Ungültige Username-Liste\n\n", mimetype="text/event-stream")
+        filtered, count = _filter_userlist_file(src)
+        if filtered:
+            cmd += ["--userfile", filtered]
+        else:
+            return Response("data: [ERROR] Liste enthält keine gültigen Einträge\n\n", mimetype="text/event-stream")
+    elif usernames:
+        cmd += ["--users", usernames]
+    else:
+        cmd += ["--users", "admin"]
+
+    # Password source
+    if passlist:
+        pw_path = _safe_wordlist_path("passwords", passlist)
+        if not pw_path:
+            return Response("data: [ERROR] Ungültige Passwort-Liste\n\n", mimetype="text/event-stream")
+        cmd += ["--passfile", pw_path]
+    elif passwords:
+        cmd += ["--passwords", passwords]
+    else:
+        return Response("data: [ERROR] Kein Passwort / keine Passwortliste\n\n", mimetype="text/event-stream")
+
+    return run_streaming(cmd)
 
 
 # ── Brute Force ────────────────────────────────────────────────────────────────
