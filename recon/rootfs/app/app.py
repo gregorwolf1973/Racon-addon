@@ -410,6 +410,127 @@ def scan_ffuf():
     return run_streaming(cmd)
 
 
+# ── Login Form Auto-Detect ─────────────────────────────────────────────────────
+
+@app.route("/scan/detect-login")
+def detect_login():
+    import urllib.parse, urllib.error
+    from html.parser import HTMLParser
+    from urllib.parse import urljoin, urlparse
+
+    target = request.args.get("target", "").strip()
+    if not target:
+        return jsonify({"error": "Kein Ziel angegeben"}), 400
+    if not target.startswith("http"):
+        target = "http://" + target
+
+    class _FormParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.forms = []
+            self._form = None
+            self._inputs = []
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            if tag == "form":
+                self._form = a
+                self._inputs = []
+            elif tag == "input" and self._form is not None:
+                self._inputs.append(a)
+        def handle_endtag(self, tag):
+            if tag == "form" and self._form is not None:
+                self.forms.append({
+                    "action": self._form.get("action", ""),
+                    "method": self._form.get("method", "get").lower(),
+                    "inputs": self._inputs[:]
+                })
+                self._form = None
+
+    hdrs = {"User-Agent": "Mozilla/5.0 (compatible; Recon/1.0)"}
+    try:
+        req = urllib.request.Request(target, headers=hdrs)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            html = r.read().decode("utf-8", errors="ignore")
+            base_url = r.url
+    except Exception as e:
+        return jsonify({"error": f"Seite nicht erreichbar: {e}"}), 400
+
+    p = _FormParser()
+    p.feed(html)
+    login_form = next((
+        f for f in p.forms
+        if f["method"] == "post" and
+        any(i.get("type", "").lower() == "password" for i in f["inputs"])
+    ), None)
+    if not login_form:
+        return jsonify({"error": "Kein Login-Formular auf dieser Seite gefunden"}), 404
+
+    user_field = pass_field = None
+    extra = {}
+    for inp in login_form["inputs"]:
+        t = inp.get("type", "text").lower()
+        n = inp.get("name", "")
+        if not n:
+            continue
+        if t == "password":
+            pass_field = n
+        elif t in ("text", "email") and not user_field:
+            user_field = n
+        elif t in ("hidden", "submit") and inp.get("value"):
+            extra[n] = inp["value"]
+
+    action_path = urlparse(urljoin(base_url, login_form["action"] or "/")).path
+
+    # Test dummy login without following redirect
+    post_body = {user_field: "dummyuser_xyz123", pass_field: "dummypass_xyz456"}
+    post_body.update(extra)
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **kw): return None
+
+    opener = urllib.request.build_opener(_NoRedirect())
+    fail_location = ""
+    fail_body = ""
+    try:
+        r2 = urllib.request.Request(
+            urljoin(base_url, action_path),
+            data=urllib.parse.urlencode(post_body).encode(),
+            headers={**hdrs, "Content-Type": "application/x-www-form-urlencoded"}
+        )
+        with opener.open(r2, timeout=10) as resp:
+            fail_location = resp.headers.get("Location", "")
+            fail_body = resp.read().decode("utf-8", errors="ignore")
+    except urllib.error.HTTPError as e:
+        fail_location = e.headers.get("Location", "")
+    except Exception:
+        pass
+
+    detect_mode = "F"
+    detect_string = ""
+    redirect_based = bool(fail_location)
+
+    if redirect_based:
+        # Failed login redirects somewhere (e.g. login.jsp) — use that as F= indicator
+        fail_loc_path = urlparse(fail_location).path
+        detect_string = fail_loc_path.lstrip("/").split("/")[-1] or fail_location
+    else:
+        for kw in ["incorrect", "invalid", "wrong", "failed", "denied", "error", "ungültig"]:
+            if kw.lower() in fail_body.lower():
+                detect_string = kw
+                break
+
+    return jsonify({
+        "action": action_path,
+        "user_field": user_field or "",
+        "pass_field": pass_field or "",
+        "extra_fields": extra,
+        "detect_mode": detect_mode,
+        "detect_string": detect_string,
+        "redirect_based": redirect_based,
+        "fail_location": fail_location,
+    })
+
+
 # ── Brute Force ────────────────────────────────────────────────────────────────
 
 def _filter_userlist_file(src_path):

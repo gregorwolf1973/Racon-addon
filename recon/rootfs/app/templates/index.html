@@ -351,21 +351,9 @@
           <input class="ha-input" id="brute-port" type="text"
             placeholder="Auto" style="min-width:75px;max-width:90px" />
         </div>
-        <div class="ha-form-group" id="brute-path-group" style="display:none;flex:1 1 400px">
-          <label class="ha-label" id="brute-path-label">Pfad (HTTP)</label>
-          <input class="ha-input" id="brute-path" type="text"
-            placeholder="/login" style="width:100%;min-width:200px" list="brute-path-list" />
-          <datalist id="brute-path-list">
-            <option value="/doLogin:uid=^USER^&passw=^PASS^&btnSubmit=Login:S=bank/main.jsp"></option>
-            <option value="/login:user=^USER^&pass=^PASS^:F=incorrect"></option>
-            <option value="/login:username=^USER^&password=^PASS^:F=incorrect"></option>
-            <option value="/wp-login.php:log=^USER^&pwd=^PASS^&wp-submit=Login:F=incorrect"></option>
-            <option value="/admin/login:username=^USER^&password=^PASS^:F=Invalid"></option>
-            <option value="/"></option>
-            <option value="/login"></option>
-            <option value="/admin"></option>
-            <option value="/wp-login.php"></option>
-          </datalist>
+        <div class="ha-form-group" id="brute-get-group" style="display:none">
+          <label class="ha-label">Pfad</label>
+          <input class="ha-input" id="brute-path" type="text" placeholder="/" style="min-width:100px;max-width:160px" />
         </div>
         <div class="ha-form-group">
           <label class="ha-label">Tasks</label>
@@ -399,6 +387,38 @@
       </div>
       <!-- Protocol hint -->
       <div class="ha-info-strip" id="proto-hint-strip" style="margin-top:10px;display:none"></div>
+
+      <!-- POST Form fields (shown only for http/https-post-form) -->
+      <div id="brute-post-group" style="display:none;margin-top:10px">
+        <div class="ha-form-row">
+          <div class="ha-form-group">
+            <label class="ha-label">Login-URL</label>
+            <input class="ha-input" id="brute-login-url" placeholder="/login" style="min-width:110px;max-width:160px" />
+          </div>
+          <div class="ha-form-group">
+            <label class="ha-label">Benutzername-Feld</label>
+            <input class="ha-input" id="brute-user-field" placeholder="username" style="min-width:100px;max-width:140px" />
+          </div>
+          <div class="ha-form-group">
+            <label class="ha-label">Passwort-Feld</label>
+            <input class="ha-input" id="brute-pass-field" placeholder="password" style="min-width:100px;max-width:140px" />
+          </div>
+          <div class="ha-form-group" style="flex:1">
+            <label class="ha-label">Fehler-/Erfolgstext</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <select class="ha-select" id="brute-detect-mode" style="min-width:110px;max-width:130px">
+                <option value="F">F= Fehlertext</option>
+                <option value="S">S= Erfolgstext</option>
+              </select>
+              <input class="ha-input" id="brute-detect-str" placeholder="incorrect" style="min-width:90px;flex:1" />
+            </div>
+          </div>
+          <div class="ha-form-group" style="align-self:flex-end">
+            <button class="ha-btn" id="brute-detect-btn" onclick="autoDetectLogin(this)" title="Formular automatisch erkennen">🔍 Auto-Detect</button>
+          </div>
+        </div>
+        <div id="brute-detect-hint" style="display:none;margin-top:6px;font-size:12px;color:var(--ha-warning)"></div>
+      </div>
     </div>
 
     <!-- ── Row 2: Username picker ── -->
@@ -1064,21 +1084,13 @@ function onProtocolChange() {
   const strip = document.getElementById('proto-hint-strip');
   const badge = document.getElementById('wait-hint-badge');
 
-  // Show/hide HTTP path field
+  // Show/hide HTTP fields
   const isHttp = proto.startsWith('http');
   const isPost = proto.includes('post-form');
-  document.getElementById('brute-path-group').style.display = isHttp ? '' : 'none';
-  const pathInput = document.getElementById('brute-path');
-  const pathLabel = document.getElementById('brute-path-label');
-  if (isPost) {
-    pathLabel.textContent = 'Pfad (POST-Form)';
-    pathInput.placeholder = '/login:user=^USER^&pass=^PASS^:F=Fehlermeldung';
-  } else {
-    pathLabel.textContent = 'Pfad (HTTP)';
-    pathInput.placeholder = '/';
-  }
-  if (isHttp && !pathInput.value)
-    pathInput.value = isPost ? '' : '/';
+  document.getElementById('brute-post-group').style.display = isPost ? '' : 'none';
+  document.getElementById('brute-get-group').style.display  = (isHttp && !isPost) ? '' : 'none';
+  if (!isPost && isHttp && !document.getElementById('brute-path').value)
+    document.getElementById('brute-path').value = '/';
 
   if (hint) {
     const defaultMs = hint.wait_ms;
@@ -1092,6 +1104,41 @@ function onProtocolChange() {
     strip.style.display = 'none';
   }
   updateWaitDisplay();
+}
+
+async function autoDetectLogin(btn) {
+  const target = document.getElementById('brute-target').value.trim();
+  if (!target) { alert('Bitte zuerst Ziel (IP / Hostname) eingeben.'); return; }
+  const orig = btn.textContent;
+  btn.textContent = '⏳ Erkenne...';
+  btn.disabled = true;
+  document.getElementById('brute-detect-hint').style.display = 'none';
+  try {
+    const r = await fetch(`/scan/detect-login?target=${encodeURIComponent(target)}`);
+    const d = await r.json();
+    if (d.error) {
+      document.getElementById('brute-detect-hint').textContent = '⚠ ' + d.error;
+      document.getElementById('brute-detect-hint').style.display = '';
+      return;
+    }
+    document.getElementById('brute-login-url').value  = d.action   || '/login';
+    document.getElementById('brute-user-field').value = d.user_field || '';
+    document.getElementById('brute-pass-field').value = d.pass_field || '';
+    document.getElementById('brute-detect-mode').value = d.detect_mode || 'F';
+    document.getElementById('brute-detect-str').value  = d.detect_string || '';
+    const hint = document.getElementById('brute-detect-hint');
+    if (d.redirect_based) {
+      hint.textContent = `ℹ Redirect-Login erkannt (→ ${d.fail_location}). `
+        + `Erkennungstext ggf. anpassen — teste mit S= falls F= nicht funktioniert.`;
+      hint.style.display = '';
+    }
+  } catch(e) {
+    document.getElementById('brute-detect-hint').textContent = '⚠ Fehler: ' + e;
+    document.getElementById('brute-detect-hint').style.display = '';
+  } finally {
+    btn.textContent = orig;
+    btn.disabled = false;
+  }
 }
 
 function updateWaitDisplay() {
@@ -1321,11 +1368,29 @@ function clearBrute() {
     </div>`;
 }
 
+function buildHydraPath() {
+  const proto = document.getElementById('brute-protocol').value;
+  if (proto.includes('post-form')) {
+    const url  = document.getElementById('brute-login-url').value.trim() || '/login';
+    const uf   = document.getElementById('brute-user-field').value.trim();
+    const pf   = document.getElementById('brute-pass-field').value.trim();
+    const mode = document.getElementById('brute-detect-mode').value;
+    const str  = document.getElementById('brute-detect-str').value.trim();
+    if (!uf || !pf) return null;
+    return `${url}:${uf}=^USER^&${pf}=^PASS^:${mode}=${str || 'invalid'}`;
+  }
+  return document.getElementById('brute-path').value.trim() || '/';
+}
+
 function startBrute() {
   const target = document.getElementById('brute-target').value.trim();
   const proto  = document.getElementById('brute-protocol').value;
   const port   = document.getElementById('brute-port').value.trim();
-  const path   = document.getElementById('brute-path').value.trim() || '/';
+  const path   = buildHydraPath();
+  if (path === null) {
+    alert('Bitte Benutzername-Feld und Passwort-Feld ausfüllen oder Auto-Detect klicken.');
+    return;
+  }
   const tasks  = document.getElementById('brute-tasks').value;
   const waitMs = document.getElementById('brute-wait-ms').value;
   const users  = document.getElementById('brute-users').value.trim() || 'admin';
@@ -1546,8 +1611,14 @@ function launchBrute(target, port, protocol) {
   const sel = document.getElementById('brute-protocol');
   [...sel.options].forEach(o => { if (o.value === protocol) o.selected = true; });
 
-  // Trigger protocol change to update hints + path visibility
+  // Trigger protocol change to update hints + field visibility
   onProtocolChange();
+
+  // Auto-detect login form for HTTP POST
+  if (protocol.includes('post-form')) {
+    const btn = document.getElementById('brute-detect-btn');
+    if (btn) autoDetectLogin(btn);
+  }
 
   // Flash confirmation
   const flash = document.createElement('div');
