@@ -102,7 +102,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.2.0"
+ADDON_VERSION = "1.2.2"
 
 @app.route("/")
 def index():
@@ -552,25 +552,19 @@ def detect_login():
         redirect_based = status_code in (301, 302, 303, 307, 308) and bool(fail_location)
 
         if redirect_based:
-            # Follow the redirect for failed login and extract page text for F=
-            r4 = subprocess.run(
-                ["curl", "-s", "-L", "--max-time", "10",
-                 "-A", "Mozilla/5.0",
-                 "-X", "POST", "-d", urlencode(post_data),
-                 action_url],
-                capture_output=True, text=True, timeout=15
-            )
-            fail_page = r4.stdout.lower()
-            # Look for common failure indicators on the landing page
-            for kw in ["login", "sign in", "anmelden", "incorrect", "invalid",
-                        "wrong", "failed", "denied", "error", "ungültig"]:
-                if kw in fail_page:
-                    detect_string = kw
-                    break
-            if not detect_string:
-                # Fallback: use redirect target filename
-                loc_path = urlparse(fail_location).path
-                detect_string = loc_path.lstrip("/").split("/")[-1] or "login"
+            # For redirect-based auth, Hydra checks the raw 302 response
+            # (including headers). We use F= with something from the FAILURE
+            # response headers, or S= with something unique to SUCCESS headers.
+            #
+            # Strategy: the failed 302 Location header (e.g. "login.jsp")
+            # is unique to failure. Use F= with that Location value.
+            # Hydra sees the full response including headers, so
+            # F=login.jsp will match "Location: login.jsp" in the failure response.
+            fail_loc_file = urlparse(fail_location).path.split("/")[-1]
+            if fail_loc_file:
+                detect_string = fail_loc_file
+            else:
+                detect_string = fail_location
         else:
             for kw in ["incorrect", "invalid", "wrong", "failed", "denied",
                         "error", "ungültig", "falsch"]:
