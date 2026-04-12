@@ -335,7 +335,9 @@
           <select class="ha-select" id="brute-protocol" onchange="onProtocolChange()">
             <option value="ssh">SSH (22)</option>
             <option value="ftp">FTP (21)</option>
+            <option value="http-post-form">HTTP POST Form (80)</option>
             <option value="http-get">HTTP GET (80)</option>
+            <option value="https-post-form">HTTPS POST Form (443)</option>
             <option value="https-get">HTTPS GET (443)</option>
             <option value="smb">SMB (445)</option>
             <option value="telnet">Telnet (23)</option>
@@ -349,20 +351,20 @@
           <input class="ha-input" id="brute-port" type="text"
             placeholder="Auto" style="min-width:75px;max-width:90px" />
         </div>
-        <div class="ha-form-group" id="brute-path-group" style="display:none">
-          <label class="ha-label">Pfad (HTTP)</label>
+        <div class="ha-form-group" id="brute-path-group" style="display:none;flex:1 1 400px">
+          <label class="ha-label" id="brute-path-label">Pfad (HTTP)</label>
           <input class="ha-input" id="brute-path" type="text"
-            placeholder="/login" style="min-width:110px;max-width:160px" list="brute-path-list" />
+            placeholder="/login" style="width:100%;min-width:200px" list="brute-path-list" />
           <datalist id="brute-path-list">
+            <option value="/login:user=^USER^&pass=^PASS^:F=incorrect"></option>
+            <option value="/doLogin:uid=^USER^&passw=^PASS^&btnSubmit=Login:F=incorrect"></option>
+            <option value="/wp-login.php:log=^USER^&pwd=^PASS^&wp-submit=Login:F=incorrect"></option>
+            <option value="/admin/login:username=^USER^&password=^PASS^:F=Invalid"></option>
             <option value="/"></option>
             <option value="/login"></option>
             <option value="/admin"></option>
             <option value="/admin/login"></option>
             <option value="/wp-login.php"></option>
-            <option value="/user/login"></option>
-            <option value="/signin"></option>
-            <option value="/auth"></option>
-            <option value="/panel"></option>
           </datalist>
         </div>
         <div class="ha-form-group">
@@ -1064,9 +1066,19 @@ function onProtocolChange() {
 
   // Show/hide HTTP path field
   const isHttp = proto.startsWith('http');
+  const isPost = proto.includes('post-form');
   document.getElementById('brute-path-group').style.display = isHttp ? '' : 'none';
-  if (isHttp && !document.getElementById('brute-path').value)
-    document.getElementById('brute-path').value = '/';
+  const pathInput = document.getElementById('brute-path');
+  const pathLabel = document.getElementById('brute-path-label');
+  if (isPost) {
+    pathLabel.textContent = 'Pfad (POST-Form)';
+    pathInput.placeholder = '/login:user=^USER^&pass=^PASS^:F=Fehlermeldung';
+  } else {
+    pathLabel.textContent = 'Pfad (HTTP)';
+    pathInput.placeholder = '/';
+  }
+  if (isHttp && !pathInput.value)
+    pathInput.value = isPost ? '' : '/';
 
   if (hint) {
     const defaultMs = hint.wait_ms;
