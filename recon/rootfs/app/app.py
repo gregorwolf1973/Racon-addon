@@ -102,7 +102,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.3.0"
+ADDON_VERSION = "1.3.1"
 
 @app.route("/")
 def index():

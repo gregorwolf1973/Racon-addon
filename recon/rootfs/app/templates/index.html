@@ -408,10 +408,13 @@
             <input class="ha-input" id="brute-pass-field" placeholder="password" style="min-width:100px;max-width:140px" />
           </div>
           <div class="ha-form-group" style="flex:1">
-            <label class="ha-label">Fehlertext (F=)</label>
+            <label class="ha-label">Erkennung</label>
             <div style="display:flex;gap:6px;align-items:center">
-              <input type="hidden" id="brute-detect-mode" value="F" />
-              <input class="ha-input" id="brute-detect-str" placeholder="login.jsp / incorrect" style="min-width:120px;flex:1" />
+              <select class="ha-select" id="brute-detect-mode" style="min-width:80px;max-width:100px">
+                <option value="F">F= Fehler</option>
+                <option value="S">S= Erfolg</option>
+              </select>
+              <input class="ha-input" id="brute-detect-str" placeholder="login.jsp / incorrect" style="min-width:100px;flex:1" />
             </div>
           </div>
           <div class="ha-form-group" style="align-self:flex-end">
