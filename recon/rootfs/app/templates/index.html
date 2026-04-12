@@ -1127,11 +1127,18 @@ async function autoDetectLogin(btn) {
     document.getElementById('brute-pass-field').value = d.pass_field || '';
     document.getElementById('brute-detect-mode').value = d.detect_mode || 'F';
     document.getElementById('brute-detect-str').value  = d.detect_string || '';
+    // Store extra hidden/submit fields for buildHydraPath()
+    window._bruteExtraFields = d.extra_fields || {};
     const hint = document.getElementById('brute-detect-hint');
+    const extras = Object.keys(d.extra_fields || {});
     if (d.redirect_based) {
       hint.textContent = `ℹ Redirect-Login erkannt (→ ${d.fail_location}). `
         + `Erkennungstext ggf. anpassen — teste mit S= falls F= nicht funktioniert.`;
       hint.style.display = '';
+    } else if (extras.length) {
+      hint.textContent = `✓ Erkannt. Zusatzfelder: ${extras.join(', ')}`;
+      hint.style.display = '';
+      hint.style.color = 'var(--ha-success)';
     }
   } catch(e) {
     document.getElementById('brute-detect-hint').textContent = '⚠ Fehler: ' + e;
@@ -1378,7 +1385,13 @@ function buildHydraPath() {
     const mode = document.getElementById('brute-detect-mode').value;
     const str  = document.getElementById('brute-detect-str').value.trim();
     if (!uf || !pf) return null;
-    return `${url}:${uf}=^USER^&${pf}=^PASS^:${mode}=${str || 'invalid'}`;
+    // Build field string: user=^USER^&pass=^PASS^&extra1=val1&...
+    let fields = `${uf}=^USER^&${pf}=^PASS^`;
+    const extra = window._bruteExtraFields || {};
+    for (const [k, v] of Object.entries(extra)) {
+      if (k !== uf && k !== pf) fields += `&${k}=${v}`;
+    }
+    return `${url}:${fields}:${mode}=${str || 'invalid'}`;
   }
   return document.getElementById('brute-path').value.trim() || '/';
 }

@@ -102,7 +102,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.1.9"
+ADDON_VERSION = "1.2.0"
 
 @app.route("/")
 def index():
@@ -672,10 +672,10 @@ def scan_brute():
 
         # ── Password source ───────────────────────────────────────
         if passlist:
-            path = _safe_wordlist_path("passwords", passlist)
-            if not path:
+            pw_path = _safe_wordlist_path("passwords", passlist)
+            if not pw_path:
                 return Response("data: [ERROR] Ungültige Passwort-Liste\n\n", mimetype="text/event-stream")
-            cmd += ["-P", path]
+            cmd += ["-P", pw_path]
         elif passwords:
             pass_list = [p.strip() for p in passwords.split(",") if p.strip()]
             if not pass_list:
