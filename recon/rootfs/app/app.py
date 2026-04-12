@@ -510,6 +510,11 @@ def scan_brute():
 
         if port:
             cmd += ["-s", port]
+        # Auto-upgrade http-get → http-post-form when path contains POST form syntax
+        if protocol == "http-get" and ("^USER^" in path or "^PASS^" in path):
+            protocol = "http-post-form"
+        elif protocol == "https-get" and ("^USER^" in path or "^PASS^" in path):
+            protocol = "https-post-form"
         cmd += [target, protocol]
         # HTTP/HTTPS require a path as module-specific option
         if protocol in ("http-get", "https-get", "http-post-form", "https-post-form"):
