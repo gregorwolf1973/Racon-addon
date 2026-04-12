@@ -55,8 +55,10 @@ PROTO_HINTS = {
     "ftp":       {"tasks": 4, "wait_ms": 300,  "note": "FTP: Kein Rate-Limit. 0–500ms."},
     "pop3":      {"tasks": 4, "wait_ms": 300,  "note": "POP3: 0–500ms."},
     "smtp":      {"tasks": 4, "wait_ms": 300,  "note": "SMTP: 0–500ms."},
-    "http-get":  {"tasks": 8, "wait_ms": 0,    "note": "HTTP: Kein Wait nötig."},
-    "https-get": {"tasks": 8, "wait_ms": 0,    "note": "HTTPS: Kein Wait nötig."},
+    "http-get":       {"tasks": 8, "wait_ms": 0, "note": "HTTP GET: Kein Wait nötig. Nur für HTTP Basic Auth."},
+    "https-get":      {"tasks": 8, "wait_ms": 0, "note": "HTTPS GET: Kein Wait nötig. Nur für HTTP Basic Auth."},
+    "http-post-form": {"tasks": 8, "wait_ms": 0, "note": "HTTP POST Form: Für HTML Login-Formulare. Auto-Detect nutzen!"},
+    "https-post-form":{"tasks": 8, "wait_ms": 0, "note": "HTTPS POST Form: Für HTML Login-Formulare. Auto-Detect nutzen!"},
 }
 
 
@@ -414,13 +416,12 @@ def scan_ffuf():
 
 @app.route("/scan/detect-login")
 def detect_login():
-    import urllib.parse, urllib.error
     from html.parser import HTMLParser
-    from urllib.parse import urljoin, urlparse
+    from urllib.parse import urljoin, urlparse, urlencode
 
     target = request.args.get("target", "").strip()
     if not target:
-        return jsonify({"error": "Kein Ziel angegeben"}), 400
+        return jsonify({"error": "Kein Ziel angegeben"})
     if not target.startswith("http"):
         target = "http://" + target
 
@@ -446,89 +447,147 @@ def detect_login():
                 })
                 self._form = None
 
-    hdrs = {"User-Agent": "Mozilla/5.0 (compatible; Recon/1.0)"}
     try:
-        req = urllib.request.Request(target, headers=hdrs)
-        with urllib.request.urlopen(req, timeout=10) as r:
-            html = r.read().decode("utf-8", errors="ignore")
-            base_url = r.url
-    except Exception as e:
-        return jsonify({"error": f"Seite nicht erreichbar: {e}"}), 400
-
-    p = _FormParser()
-    p.feed(html)
-    login_form = next((
-        f for f in p.forms
-        if f["method"] == "post" and
-        any(i.get("type", "").lower() == "password" for i in f["inputs"])
-    ), None)
-    if not login_form:
-        return jsonify({"error": "Kein Login-Formular auf dieser Seite gefunden"}), 404
-
-    user_field = pass_field = None
-    extra = {}
-    for inp in login_form["inputs"]:
-        t = inp.get("type", "text").lower()
-        n = inp.get("name", "")
-        if not n:
-            continue
-        if t == "password":
-            pass_field = n
-        elif t in ("text", "email") and not user_field:
-            user_field = n
-        elif t in ("hidden", "submit") and inp.get("value"):
-            extra[n] = inp["value"]
-
-    action_path = urlparse(urljoin(base_url, login_form["action"] or "/")).path
-
-    # Test dummy login without following redirect
-    post_body = {user_field: "dummyuser_xyz123", pass_field: "dummypass_xyz456"}
-    post_body.update(extra)
-
-    class _NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *a, **kw): return None
-
-    opener = urllib.request.build_opener(_NoRedirect())
-    fail_location = ""
-    fail_body = ""
-    try:
-        r2 = urllib.request.Request(
-            urljoin(base_url, action_path),
-            data=urllib.parse.urlencode(post_body).encode(),
-            headers={**hdrs, "Content-Type": "application/x-www-form-urlencoded"}
+        # Fetch target page with curl (-L follows redirects to find login page)
+        r = subprocess.run(
+            ["curl", "-s", "-L", "--max-time", "10",
+             "-A", "Mozilla/5.0 (compatible; Recon/1.0)", target],
+            capture_output=True, text=True, timeout=15
         )
-        with opener.open(r2, timeout=10) as resp:
-            fail_location = resp.headers.get("Location", "")
-            fail_body = resp.read().decode("utf-8", errors="ignore")
-    except urllib.error.HTTPError as e:
-        fail_location = e.headers.get("Location", "")
-    except Exception:
-        pass
+        if r.returncode != 0 or not r.stdout.strip():
+            return jsonify({"error": "Seite nicht erreichbar"})
+        html = r.stdout
 
-    detect_mode = "F"
-    detect_string = ""
-    redirect_based = bool(fail_location)
+        # Also try /login if no form on main page
+        pages_to_try = [html]
+        p0 = _FormParser()
+        p0.feed(html)
+        has_login_form = any(
+            f["method"] == "post" and
+            any(i.get("type", "").lower() == "password" for i in f["inputs"])
+            for f in p0.forms
+        )
+        if not has_login_form:
+            for path in ["/login", "/login.jsp", "/signin", "/auth/login"]:
+                try:
+                    r2 = subprocess.run(
+                        ["curl", "-s", "-L", "--max-time", "5",
+                         "-A", "Mozilla/5.0", target.rstrip("/") + path],
+                        capture_output=True, text=True, timeout=8
+                    )
+                    if r2.returncode == 0 and r2.stdout.strip():
+                        pages_to_try.append(r2.stdout)
+                except Exception:
+                    pass
 
-    if redirect_based:
-        # Failed login redirects somewhere (e.g. login.jsp) — use that as F= indicator
-        fail_loc_path = urlparse(fail_location).path
-        detect_string = fail_loc_path.lstrip("/").split("/")[-1] or fail_location
-    else:
-        for kw in ["incorrect", "invalid", "wrong", "failed", "denied", "error", "ungültig"]:
-            if kw.lower() in fail_body.lower():
-                detect_string = kw
+        # Parse all fetched pages to find a login form
+        login_form = None
+        for page_html in pages_to_try:
+            p = _FormParser()
+            p.feed(page_html)
+            login_form = next((
+                f for f in p.forms
+                if f["method"] == "post" and
+                any(i.get("type", "").lower() == "password" for i in f["inputs"])
+            ), None)
+            if login_form:
                 break
+        if not login_form:
+            return jsonify({"error": "Kein Login-Formular gefunden. Prüfe ob die URL korrekt ist."})
 
-    return jsonify({
-        "action": action_path,
-        "user_field": user_field or "",
-        "pass_field": pass_field or "",
-        "extra_fields": extra,
-        "detect_mode": detect_mode,
-        "detect_string": detect_string,
-        "redirect_based": redirect_based,
-        "fail_location": fail_location,
-    })
+        # Extract field names
+        user_field = pass_field = None
+        extra = {}
+        for inp in login_form["inputs"]:
+            t = inp.get("type", "text").lower()
+            n = inp.get("name", "")
+            if not n:
+                continue
+            if t == "password":
+                pass_field = n
+            elif t in ("text", "email") and not user_field:
+                user_field = n
+            elif t in ("hidden", "submit") and inp.get("value"):
+                extra[n] = inp["value"]
+
+        # Resolve action URL
+        action_raw = login_form["action"] or "/"
+        action_path = urlparse(urljoin(target + "/", action_raw)).path
+
+        # Test dummy login with curl (no redirect follow) to detect failure pattern
+        post_data = {user_field or "user": "dummyxyz", pass_field or "pass": "dummyxyz"}
+        post_data.update(extra)
+        action_url = target.rstrip("/") + action_path
+
+        r3 = subprocess.run(
+            ["curl", "-s", "-i", "--max-time", "10",
+             "-A", "Mozilla/5.0",
+             "-X", "POST", "-d", urlencode(post_data),
+             action_url],
+            capture_output=True, text=True, timeout=15
+        )
+        resp_output = r3.stdout
+
+        # Split headers and body
+        sep = resp_output.find("\r\n\r\n")
+        if sep == -1:
+            sep = resp_output.find("\n\n")
+        headers_str = resp_output[:sep] if sep > 0 else ""
+        fail_body = resp_output[sep + 4:] if sep > 0 else resp_output
+
+        # Extract Location header and status
+        fail_location = ""
+        loc_m = re.search(r"Location:\s*(\S+)", headers_str, re.IGNORECASE)
+        if loc_m:
+            fail_location = loc_m.group(1)
+        status_m = re.search(r"HTTP/\S+\s+(\d+)", headers_str)
+        status_code = int(status_m.group(1)) if status_m else 200
+
+        # Determine detection mode
+        detect_mode = "F"
+        detect_string = ""
+        redirect_based = status_code in (301, 302, 303, 307, 308) and bool(fail_location)
+
+        if redirect_based:
+            # Follow the redirect for failed login and extract page text for F=
+            r4 = subprocess.run(
+                ["curl", "-s", "-L", "--max-time", "10",
+                 "-A", "Mozilla/5.0",
+                 "-X", "POST", "-d", urlencode(post_data),
+                 action_url],
+                capture_output=True, text=True, timeout=15
+            )
+            fail_page = r4.stdout.lower()
+            # Look for common failure indicators on the landing page
+            for kw in ["login", "sign in", "anmelden", "incorrect", "invalid",
+                        "wrong", "failed", "denied", "error", "ungültig"]:
+                if kw in fail_page:
+                    detect_string = kw
+                    break
+            if not detect_string:
+                # Fallback: use redirect target filename
+                loc_path = urlparse(fail_location).path
+                detect_string = loc_path.lstrip("/").split("/")[-1] or "login"
+        else:
+            for kw in ["incorrect", "invalid", "wrong", "failed", "denied",
+                        "error", "ungültig", "falsch"]:
+                if kw.lower() in fail_body.lower():
+                    detect_string = kw
+                    break
+
+        return jsonify({
+            "action": action_path,
+            "user_field": user_field or "",
+            "pass_field": pass_field or "",
+            "extra_fields": extra,
+            "detect_mode": detect_mode,
+            "detect_string": detect_string,
+            "redirect_based": redirect_based,
+            "fail_location": fail_location,
+        })
+
+    except Exception as e:
+        return jsonify({"error": f"Auto-Detect Fehler: {e}"})
 
 
 # ── Brute Force ────────────────────────────────────────────────────────────────
