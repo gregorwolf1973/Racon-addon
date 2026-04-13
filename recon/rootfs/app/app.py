@@ -102,7 +102,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.4.0"
+ADDON_VERSION = "1.4.1"
 
 @app.route("/")
 def index():
@@ -536,60 +536,76 @@ def detect_login():
         action_raw = login_form["action"] or "/"
         action_path = urlparse(urljoin(target + "/", action_raw)).path
 
-        # Test dummy login with curl (no redirect follow) to detect failure pattern
-        post_data = {user_field or "user": "dummyxyz", pass_field or "pass": "dummyxyz"}
-        post_data.update(extra)
+        # Test dummy login with proper session + CSRF handling
+        # Step 1: GET login page with cookies (for CSRF token)
         action_url = target.rstrip("/") + action_path
+        cookie_file = "/tmp/recon_detect_cookies.txt"
+        login_page_url = target.rstrip("/") + (action_path if action_path != "/" else "/login")
 
+        r_get = subprocess.run(
+            ["curl", "-s", "-L", "-c", cookie_file, "--max-time", "10",
+             "-A", "Mozilla/5.0", "-k", login_page_url],
+            capture_output=True, text=True, timeout=15
+        )
+        # Re-extract CSRF from fresh page (may differ from initial parse)
+        fresh_csrf = re.search(r'name="([^"]*(?:csrf|token|_token)[^"]*)"[^>]*value="([^"]*)"',
+                               r_get.stdout, re.IGNORECASE)
+        fresh_extra = dict(extra)
+        if fresh_csrf:
+            fresh_extra[fresh_csrf.group(1)] = fresh_csrf.group(2)
+
+        post_data = {user_field or "user": "dummyxyz_recon", pass_field or "pass": "dummyxyz_recon"}
+        post_data.update(fresh_extra)
+
+        # Step 2: POST with cookies + fresh CSRF, follow redirects
         r3 = subprocess.run(
-            ["curl", "-s", "-i", "--max-time", "10",
-             "-A", "Mozilla/5.0",
+            ["curl", "-s", "-L", "-b", cookie_file, "-c", cookie_file,
+             "--max-time", "10", "-A", "Mozilla/5.0", "-k",
              "-X", "POST", "-d", urlencode(post_data),
              action_url],
             capture_output=True, text=True, timeout=15
         )
-        resp_output = r3.stdout
+        fail_body = r3.stdout
 
-        # Split headers and body
-        sep = resp_output.find("\r\n\r\n")
-        if sep == -1:
-            sep = resp_output.find("\n\n")
-        headers_str = resp_output[:sep] if sep > 0 else ""
-        fail_body = resp_output[sep + 4:] if sep > 0 else resp_output
-
-        # Extract Location header and status
+        # Also get headers-only for redirect detection
+        r3h = subprocess.run(
+            ["curl", "-s", "-i", "-b", cookie_file, "-c", cookie_file,
+             "--max-time", "10", "-A", "Mozilla/5.0", "-k",
+             "-X", "POST", "-d", urlencode(post_data),
+             action_url],
+            capture_output=True, text=True, timeout=15
+        )
+        headers_str = r3h.stdout.split("\r\n\r\n")[0] if "\r\n\r\n" in r3h.stdout else ""
         fail_location = ""
         loc_m = re.search(r"Location:\s*(\S+)", headers_str, re.IGNORECASE)
         if loc_m:
             fail_location = loc_m.group(1)
-        status_m = re.search(r"HTTP/\S+\s+(\d+)", headers_str)
-        status_code = int(status_m.group(1)) if status_m else 200
 
-        # Determine detection mode
+        # Determine detection mode — always F= with specific error text
         detect_mode = "F"
         detect_string = ""
-        redirect_based = status_code in (301, 302, 303, 307, 308) and bool(fail_location)
 
-        if redirect_based:
-            # For redirect-based auth, Hydra checks the raw 302 response
-            # (including headers). We use F= with something from the FAILURE
-            # response headers, or S= with something unique to SUCCESS headers.
-            #
-            # Strategy: the failed 302 Location header (e.g. "login.jsp")
-            # is unique to failure. Use F= with that Location value.
-            # Hydra sees the full response including headers, so
-            # F=login.jsp will match "Location: login.jsp" in the failure response.
-            fail_loc_file = urlparse(fail_location).path.split("/")[-1]
-            if fail_loc_file:
-                detect_string = fail_loc_file
-            else:
-                detect_string = fail_location
-        else:
-            for kw in ["incorrect", "invalid", "wrong", "failed", "denied",
-                        "error", "ungültig", "falsch"]:
-                if kw.lower() in fail_body.lower():
-                    detect_string = kw
-                    break
+        # Search the final page (after redirects) for specific error messages
+        fail_lower = fail_body.lower()
+        for kw in ["incorrect", "invalid", "wrong password", "wrong username",
+                    "failed", "denied", "ungültig", "falsch",
+                    "username or password", "passwort"]:
+            if kw in fail_lower:
+                detect_string = kw
+                break
+
+        # Fallback: if still no detect string, try broader patterns
+        if not detect_string:
+            # Look for alert/error CSS classes with text
+            alert_m = re.search(r'class="[^"]*(?:alert|error|danger)[^"]*"[^>]*>(?:<[^>]*>)*\s*([^<]+)',
+                                fail_body, re.IGNORECASE)
+            if alert_m:
+                detect_string = alert_m.group(1).strip()[:40]
+
+        if not detect_string:
+            # Last resort: use type="password" (login page has it, success page doesn't)
+            if 'type="password"' in fail_body:
+                detect_string = 'type="password"'
 
         # Identify CSRF field name
         csrf_field = ""
@@ -637,8 +653,11 @@ def scan_brute_csrf():
     if not target:
         return Response("data: [ERROR] Kein Ziel angegeben\n\n", mimetype="text/event-stream")
 
-    # Determine if HTTPS
-    is_https = target.startswith("https") or request.args.get("protocol", "").startswith("https")
+    # Determine if HTTPS (from target URL, protocol name, or port 443)
+    proto_arg = request.args.get("protocol", "")
+    is_https = (target.startswith("https") or
+                proto_arg.startswith("https") or
+                port == "443")
     if not target.startswith("http"):
         target = ("https://" if is_https else "http://") + target
 
