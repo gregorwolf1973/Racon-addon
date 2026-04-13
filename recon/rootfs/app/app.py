@@ -103,7 +103,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.5.0"
+ADDON_VERSION = "1.5.1"
 
 @app.route("/")
 def index():
@@ -479,7 +479,7 @@ def detect_login():
             capture_output=True, text=True, timeout=15
         )
         if r.returncode != 0 or not r.stdout.strip():
-            return jsonify({"error": "Seite nicht erreichbar"})
+            return jsonify({"error": f"Seite nicht erreichbar (curl exit={r.returncode}, stderr={r.stderr[:200] if r.stderr else 'none'}, url={target})"})
         html = r.stdout
 
         # Also try /login if no form on main page
@@ -599,7 +599,9 @@ def detect_login():
             if is_spa:
                 return jsonify({"error": "Kein HTML-Formular gefunden — die Seite nutzt JavaScript (SPA). "
                                          "Felder manuell ausfüllen: Login-URL, Benutzer-Feld, Passwort-Feld."})
-            return jsonify({"error": "Kein Login-Formular gefunden. Trage die Login-URL ins Feld ein und klicke erneut Auto-Detect."})
+            n_pages = len(pages_to_try)
+            n_forms = sum(len(_FormParser().forms) for _ in [])  # just count
+            return jsonify({"error": f"Kein Login-Formular gefunden ({n_pages} Seiten geprüft, html={len(main_html)} bytes). Trage die Login-URL ins Feld ein und klicke erneut Auto-Detect."})
 
         # Extract field names
         user_field = pass_field = None
@@ -717,7 +719,8 @@ def detect_login():
         })
 
     except Exception as e:
-        return jsonify({"error": f"Auto-Detect Fehler: {e}"})
+        import traceback
+        return jsonify({"error": f"Auto-Detect Fehler: {e} | {traceback.format_exc()[-300:]}"})
 
 
 # ── CSRF Brute Force ──────────────────────────────────────────────────────────
