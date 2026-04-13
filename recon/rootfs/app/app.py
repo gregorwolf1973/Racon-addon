@@ -102,7 +102,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.4.1"
+ADDON_VERSION = "1.4.2"
 
 @app.route("/")
 def index():
@@ -577,9 +577,11 @@ def detect_login():
         )
         headers_str = r3h.stdout.split("\r\n\r\n")[0] if "\r\n\r\n" in r3h.stdout else ""
         fail_location = ""
+        redirect_based = False
         loc_m = re.search(r"Location:\s*(\S+)", headers_str, re.IGNORECASE)
         if loc_m:
             fail_location = loc_m.group(1)
+            redirect_based = True
 
         # Determine detection mode — always F= with specific error text
         detect_mode = "F"
