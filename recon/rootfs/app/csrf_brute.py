@@ -13,6 +13,8 @@ from html.parser import HTMLParser
 from urllib.parse import urlparse, urljoin
 
 import requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ── HTML form parser ──────────────────────────────────────────────────────────
 
