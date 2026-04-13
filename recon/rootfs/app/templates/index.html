@@ -1505,7 +1505,10 @@ function startBrute() {
   startStream('brute', scanUrl,
     (line) => {
       const m = line.match(/\[(\d+)\]\[([^\]]+)\].*host:\s*(\S+).*login:\s*(\S+).*password:\s*(.+)/i);
-      if (m) foundCreds.push({ port: m[1], proto: m[2], host: m[3], login: m[4], pass: m[5].trim() });
+      if (m) {
+        foundCreds.push({ port: m[1], proto: m[2], host: m[3], login: m[4], pass: m[5].trim() });
+        renderBruteResults(foundCreds);  // show immediately
+      }
     },
     () => renderBruteResults(foundCreds)
   );
