@@ -103,7 +103,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.4.9"
+ADDON_VERSION = "1.5.0"
 
 @app.route("/")
 def index():
@@ -472,9 +472,9 @@ def detect_login():
                 self._form = None
 
     try:
-        # Fetch target page with curl (-L follows redirects to find login page)
+        # Fetch target page with curl (-L follows redirects, -k skip SSL verify)
         r = subprocess.run(
-            ["curl", "-s", "-L", "--max-time", "10",
+            ["curl", "-s", "-L", "-k", "--max-time", "10",
              "-A", "Mozilla/5.0 (compatible; Recon/1.0)", target],
             capture_output=True, text=True, timeout=15
         )
@@ -543,7 +543,7 @@ def detect_login():
                 seen.add(url_clean)
                 try:
                     r2 = subprocess.run(
-                        ["curl", "-s", "-L", "--max-time", "5",
+                        ["curl", "-s", "-L", "-k", "--max-time", "5",
                          "-A", "Mozilla/5.0", url],
                         capture_output=True, text=True, timeout=8
                     )
