@@ -1120,7 +1120,11 @@ async function autoDetectLogin(btn) {
   document.getElementById('brute-detect-hint').style.display = 'none';
   try {
     const loginUrl = document.getElementById('brute-login-url').value.trim();
+    const port = document.getElementById('brute-port').value.trim();
+    const proto = document.getElementById('brute-protocol').value;
     let detectUrl = BASE + `/scan/detect-login?target=${encodeURIComponent(target)}`;
+    if (port) detectUrl += `&port=${encodeURIComponent(port)}`;
+    if (proto) detectUrl += `&protocol=${encodeURIComponent(proto)}`;
     if (loginUrl && loginUrl !== '/login') detectUrl += `&login_path=${encodeURIComponent(loginUrl)}`;
     const r = await fetch(detectUrl);
     const d = await r.json();

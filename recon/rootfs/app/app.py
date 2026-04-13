@@ -103,7 +103,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.5.1"
+ADDON_VERSION = "1.5.2"
 
 @app.route("/")
 def index():
@@ -444,10 +444,20 @@ def detect_login():
 
     target = request.args.get("target", "").strip()
     login_path = request.args.get("login_path", "").strip()
+    port = request.args.get("port", "").strip()
+    proto_arg = request.args.get("protocol", "").strip()
     if not target:
         return jsonify({"error": "Kein Ziel angegeben"})
     if not target.startswith("http"):
-        target = "http://" + target
+        # Determine scheme from protocol or port
+        is_https = (proto_arg.startswith("https") or port == "443")
+        scheme = "https" if is_https else "http"
+        target = f"{scheme}://{target}"
+    # Append port if non-standard
+    if port and ":" not in target.split("//", 1)[-1]:
+        if not (port == "80" and target.startswith("http://")) and \
+           not (port == "443" and target.startswith("https://")):
+            target = target.rstrip("/") + ":" + port
 
     class _FormParser(HTMLParser):
         def __init__(self):
