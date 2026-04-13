@@ -66,6 +66,7 @@ def run_streaming(cmd):
     """Run a command and stream output line by line via SSE with keepalive."""
     def generate():
         import select as sel
+        yield f"data: [CMD] {' '.join(cmd)}\n\n"
         try:
             process = subprocess.Popen(
                 cmd,
@@ -102,7 +103,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.4.2"
+ADDON_VERSION = "1.4.3"
 
 @app.route("/")
 def index():

@@ -1638,8 +1638,8 @@ function renderWebResults() {
 const SERVICE_TO_PROTO = {
   'ssh': 'ssh', 'sftp': 'ssh',
   'ftp': 'ftp', 'ftps': 'ftp',
-  'http': 'http-get', 'http-proxy': 'http-get',
-  'https': 'https-get', 'ssl/http': 'https-get', 'ssl/https': 'https-get',
+  'http': 'http-post-form', 'http-proxy': 'http-post-form',
+  'https': 'https-post-form', 'ssl/http': 'https-post-form', 'ssl/https': 'https-post-form',
   'smtp': 'smtp', 'smtps': 'smtp',
   'pop3': 'pop3', 'pop3s': 'pop3',
   'imap': null,
@@ -1655,8 +1655,8 @@ function serviceToHydraProto(service, port) {
     if (svc.includes(k)) return v;
   }
   // Fallback by port number
-  const portMap = { '21':'ftp','22':'ssh','23':'telnet','25':'smtp','80':'http-get',
-    '110':'pop3','143':'imap','443':'https-get','445':'smb','587':'smtp',
+  const portMap = { '21':'ftp','22':'ssh','23':'telnet','25':'smtp','80':'http-post-form',
+    '110':'pop3','143':'imap','443':'https-post-form','445':'smb','587':'smtp',
     '3389':'rdp','3306':null,'5432':null,'6379':null };
   return portMap[String(port)] ?? null;
 }
