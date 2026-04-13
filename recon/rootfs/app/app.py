@@ -103,7 +103,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.4.4"
+ADDON_VERSION = "1.4.5"
 
 @app.route("/")
 def index():
@@ -443,6 +443,7 @@ def detect_login():
     from urllib.parse import urljoin, urlparse, urlencode
 
     target = request.args.get("target", "").strip()
+    login_path = request.args.get("login_path", "").strip()
     if not target:
         return jsonify({"error": "Kein Ziel angegeben"})
     if not target.startswith("http"):
@@ -491,7 +492,28 @@ def detect_login():
             for f in p0.forms
         )
         if not has_login_form:
-            # First: scan page for login links (href containing "login", "signin", "auth")
+            # If user provided a specific login path, try that first
+            if login_path:
+                lp_url = target.rstrip("/") + login_path if login_path.startswith("/") else login_path
+                try:
+                    r_lp = subprocess.run(
+                        ["curl", "-s", "-L", "--max-time", "8",
+                         "-A", "Mozilla/5.0", "-k", lp_url],
+                        capture_output=True, text=True, timeout=12
+                    )
+                    if r_lp.returncode == 0 and r_lp.stdout.strip():
+                        pages_to_try.append(r_lp.stdout)
+                        p_lp = _FormParser()
+                        p_lp.feed(r_lp.stdout)
+                        if any(f["method"] == "post" and
+                               any(i.get("type", "").lower() == "password" for i in f["inputs"])
+                               for f in p_lp.forms):
+                            has_login_form = True  # skip further search
+                except Exception:
+                    pass
+
+        if not has_login_form:
+            # Scan page for login links (href containing "login", "signin", "auth")
             login_links = re.findall(r'href=["\']([^"\']*(?:login|signin|auth|anmeld)[^"\']*)["\']',
                                      html, re.IGNORECASE)
             link_paths = []
@@ -567,7 +589,16 @@ def detect_login():
                     found_page_url = page_urls[i]
                 break
         if not login_form:
-            return jsonify({"error": "Kein Login-Formular gefunden. Prüfe ob die URL korrekt ist."})
+            # Check if it's likely a JavaScript SPA
+            main_html = pages_to_try[0] if pages_to_try else ""
+            is_spa = any(k in main_html for k in [
+                'id="app"', 'id="root"', 'id="__next"', 'id="__nuxt"',
+                'ng-app', 'data-reactroot', '<script type="module"'
+            ])
+            if is_spa:
+                return jsonify({"error": "Kein HTML-Formular gefunden — die Seite nutzt JavaScript (SPA). "
+                                         "Felder manuell ausfüllen: Login-URL, Benutzer-Feld, Passwort-Feld."})
+            return jsonify({"error": "Kein Login-Formular gefunden. Trage die Login-URL ins Feld ein und klicke erneut Auto-Detect."})
 
         # Extract field names
         user_field = pass_field = None
