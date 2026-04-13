@@ -103,7 +103,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.5.4"
+ADDON_VERSION = "1.5.5"
 
 @app.route("/")
 def index():
@@ -815,7 +815,7 @@ def scan_brute():
     tmp_files = []
 
     try:
-        cmd = ["hydra", "-t", t, "-W", w, "-V"]
+        cmd = ["hydra", "-t", t, "-W", w, "-V", "-f"]
 
         # ── Username source ───────────────────────────────────────
         if userlist:
@@ -880,6 +880,7 @@ def scan_brute():
 
     def generate():
         import select as sel
+        yield f"data: [CMD] {' '.join(cmd)}\n\n"
         try:
             process = subprocess.Popen(
                 cmd,
