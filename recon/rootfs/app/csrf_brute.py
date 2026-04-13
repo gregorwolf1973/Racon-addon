@@ -96,22 +96,39 @@ def try_login(target, login_path, user_field, pass_field, csrf_field,
         if wait_ms > 0:
             time.sleep(wait_ms / 1000.0)
 
-        # Step 3: POST login
+        # Step 3: POST login (don't follow redirects so we can check each response)
         r2 = session.post(action_url, data=post_data, timeout=10,
-                          allow_redirects=True, verify=verify_ssl)
+                          allow_redirects=False, verify=verify_ssl)
 
-        # Step 4: Check result
-        full_response = r2.text
-        # Also include the URL we ended up at (after redirects)
-        final_url = r2.url
+        # Collect all response bodies through redirect chain
+        all_text = r2.text + "\n"
+        all_urls = [r2.url]
+        all_headers = str(r2.headers)
+        rr = r2
+        for _ in range(10):  # max 10 redirects
+            if rr.status_code not in (301, 302, 303, 307, 308):
+                break
+            loc = rr.headers.get("Location", "")
+            if not loc:
+                break
+            if not loc.startswith("http"):
+                loc = base + (loc if loc.startswith("/") else "/" + loc)
+            rr = session.get(loc, timeout=10, verify=verify_ssl, allow_redirects=False)
+            all_text += rr.text + "\n"
+            all_urls.append(rr.url)
+            all_headers += str(rr.headers)
+
+        # Step 4: Check result across ALL responses in chain
+        check_text = all_text.lower()
+        ds = detect_str.lower()
 
         if detect_mode == "F":
-            # F= mode: failure string present → failed, absent → success
-            if detect_str.lower() not in full_response.lower():
+            # F= mode: failure string present anywhere → failed, absent → success
+            if ds not in check_text:
                 return (username, password, True)
         else:
-            # S= mode: success string present → success
-            if detect_str.lower() in full_response.lower():
+            # S= mode: success string present anywhere → success
+            if ds in check_text:
                 return (username, password, True)
 
         return (username, password, False)

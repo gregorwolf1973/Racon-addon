@@ -1,6 +1,6 @@
 name: "Recon"
 description: "Network Scanner - IP/Port scanning with Nmap & RustScan, WLAN scanning with iw"
-version: "1.4.6"
+version: "1.4.7"
 slug: "recon"
 init: false
 arch:
