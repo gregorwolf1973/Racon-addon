@@ -103,7 +103,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.4.3"
+ADDON_VERSION = "1.4.4"
 
 @app.route("/")
 def index():
@@ -491,29 +491,80 @@ def detect_login():
             for f in p0.forms
         )
         if not has_login_form:
-            for path in ["/login", "/login.jsp", "/signin", "/auth/login"]:
+            # First: scan page for login links (href containing "login", "signin", "auth")
+            login_links = re.findall(r'href=["\']([^"\']*(?:login|signin|auth|anmeld)[^"\']*)["\']',
+                                     html, re.IGNORECASE)
+            link_paths = []
+            for lnk in login_links:
+                if lnk.startswith("http"):
+                    link_paths.append(lnk)
+                elif lnk.startswith("./"):
+                    link_paths.append(target.rstrip("/") + lnk[1:])
+                elif lnk.startswith("/"):
+                    link_paths.append(target.rstrip("/") + lnk)
+                else:
+                    link_paths.append(target.rstrip("/") + "/" + lnk)
+
+            # Then: try well-known paths as fallback
+            well_known = ["/login", "/Login.asp", "/login.asp", "/login.html",
+                          "/login.php", "/login.jsp", "/signin", "/auth/login",
+                          "/user/login", "/account/login", "/wp-login.php"]
+            for wk in well_known:
+                link_paths.append(target.rstrip("/") + wk)
+
+            # Deduplicate, try each
+            seen = set()
+            for url in link_paths:
+                url_clean = url.split("?")[0]  # ignore query params for dedup
+                if url_clean in seen:
+                    continue
+                seen.add(url_clean)
                 try:
                     r2 = subprocess.run(
                         ["curl", "-s", "-L", "--max-time", "5",
-                         "-A", "Mozilla/5.0", target.rstrip("/") + path],
+                         "-A", "Mozilla/5.0", url],
                         capture_output=True, text=True, timeout=8
                     )
                     if r2.returncode == 0 and r2.stdout.strip():
                         pages_to_try.append(r2.stdout)
+                        # Check immediately — stop early if we found a form
+                        p_check = _FormParser()
+                        p_check.feed(r2.stdout)
+                        if any(f["method"] == "post" and
+                               any(i.get("type", "").lower() == "password" for i in f["inputs"])
+                               for f in p_check.forms):
+                            break
                 except Exception:
                     pass
 
         # Parse all fetched pages to find a login form
         login_form = None
-        for page_html in pages_to_try:
+        found_page_url = target  # track which URL had the login form
+        page_urls = [target]  # URLs corresponding to pages_to_try entries
+        # Build URL list for pages added during link/fallback search
+        if not has_login_form and len(pages_to_try) > 1:
+            seen_list = list(seen) if 'seen' in dir() else []
+            # Re-build: first is target, rest are discovered URLs
+            page_urls = [target]
+            idx = 0
+            for url in link_paths:
+                url_clean = url.split("?")[0]
+                if idx >= len(pages_to_try) - 1:
+                    break
+                page_urls.append(url)
+                idx += 1
+
+        for i, page_html in enumerate(pages_to_try):
             p = _FormParser()
             p.feed(page_html)
             login_form = next((
                 f for f in p.forms
                 if f["method"] == "post" and
-                any(i.get("type", "").lower() == "password" for i in f["inputs"])
+                any(i2.get("type", "").lower() == "password" for i2 in f["inputs"])
             ), None)
             if login_form:
+                if i < len(page_urls):
+                    found_page_url = page_urls[i]
                 break
         if not login_form:
             return jsonify({"error": "Kein Login-Formular gefunden. Prüfe ob die URL korrekt ist."})
@@ -533,9 +584,13 @@ def detect_login():
             elif t in ("hidden", "submit") and inp.get("value"):
                 extra[n] = inp["value"]
 
-        # Resolve action URL
-        action_raw = login_form["action"] or "/"
-        action_path = urlparse(urljoin(target + "/", action_raw)).path
+        # Resolve action URL (empty action = same page as form)
+        action_raw = login_form["action"]
+        if not action_raw:
+            # Empty action means POST to the same page where the form was found
+            action_path = urlparse(found_page_url).path or "/"
+        else:
+            action_path = urlparse(urljoin(found_page_url + "/", action_raw)).path
 
         # Test dummy login with proper session + CSRF handling
         # Step 1: GET login page with cookies (for CSRF token)
