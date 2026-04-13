@@ -1653,15 +1653,23 @@ const SERVICE_TO_PROTO = {
 
 function serviceToHydraProto(service, port) {
   const svc = (service || '').toLowerCase();
-  // Try service name first
+  const p = String(port);
+  // HTTPS detection: service contains "ssl" or "https", or port is 443
+  const isSSL = svc.includes('ssl') || svc.includes('https') || p === '443';
+  // Try service name first (check longer keys first to avoid "http" matching "https")
   for (const [k, v] of Object.entries(SERVICE_TO_PROTO)) {
-    if (svc.includes(k)) return v;
+    if (svc.includes(k)) {
+      // If SSL detected but matched a non-SSL HTTP protocol, upgrade it
+      if (isSSL && v === 'http-post-form') return 'https-post-form';
+      if (isSSL && v === 'http-get') return 'https-get';
+      return v;
+    }
   }
   // Fallback by port number
   const portMap = { '21':'ftp','22':'ssh','23':'telnet','25':'smtp','80':'http-post-form',
     '110':'pop3','143':'imap','443':'https-post-form','445':'smb','587':'smtp',
     '3389':'rdp','3306':null,'5432':null,'6379':null };
-  return portMap[String(port)] ?? null;
+  return portMap[p] ?? null;
 }
 
 function serviceToWebTool(service, port) {

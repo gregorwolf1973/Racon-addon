@@ -103,7 +103,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.4.7"
+ADDON_VERSION = "1.4.8"
 
 @app.route("/")
 def index():
@@ -593,7 +593,8 @@ def detect_login():
             main_html = pages_to_try[0] if pages_to_try else ""
             is_spa = any(k in main_html for k in [
                 'id="app"', 'id="root"', 'id="__next"', 'id="__nuxt"',
-                'ng-app', 'data-reactroot', '<script type="module"'
+                'ng-app', 'data-reactroot', '<script type="module"',
+                '<app-root', 'id="__app"', 'id="ember'
             ])
             if is_spa:
                 return jsonify({"error": "Kein HTML-Formular gefunden — die Seite nutzt JavaScript (SPA). "
