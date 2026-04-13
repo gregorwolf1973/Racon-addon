@@ -103,7 +103,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.5.3"
+ADDON_VERSION = "1.5.4"
 
 @app.route("/")
 def index():
@@ -491,18 +491,22 @@ def detect_login():
                    any(i.get("type", "").lower() == "password" for i in f["inputs"])
                    for f in p.forms)
 
+    _last_fetch_error = [None]  # mutable to capture in closure
+
     def _fetch(url, timeout=10):
         try:
             r = req.get(url, headers=HEADERS, timeout=timeout, verify=False, allow_redirects=True)
             return r.text if r.status_code < 400 else ""
-        except Exception:
+        except Exception as e:
+            _last_fetch_error[0] = str(e)
             return ""
 
     try:
         # Fetch main page
         html = _fetch(target)
         if not html:
-            return jsonify({"error": f"Seite nicht erreichbar (url={target})"})
+            err = _last_fetch_error[0] or "empty response"
+            return jsonify({"error": f"Seite nicht erreichbar: {err} (url={target})"})
 
         pages_to_try = [(target, html)]
         has_login_form = _has_login(html)
