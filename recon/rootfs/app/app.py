@@ -103,7 +103,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.5.2"
+ADDON_VERSION = "1.5.3"
 
 @app.route("/")
 def index():
@@ -441,6 +441,9 @@ def scan_ffuf():
 def detect_login():
     from html.parser import HTMLParser
     from urllib.parse import urljoin, urlparse, urlencode
+    import requests as req
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     target = request.args.get("target", "").strip()
     login_path = request.args.get("login_path", "").strip()
@@ -449,15 +452,15 @@ def detect_login():
     if not target:
         return jsonify({"error": "Kein Ziel angegeben"})
     if not target.startswith("http"):
-        # Determine scheme from protocol or port
         is_https = (proto_arg.startswith("https") or port == "443")
         scheme = "https" if is_https else "http"
         target = f"{scheme}://{target}"
-    # Append port if non-standard
     if port and ":" not in target.split("//", 1)[-1]:
         if not (port == "80" and target.startswith("http://")) and \
            not (port == "443" and target.startswith("https://")):
             target = target.rstrip("/") + ":" + port
+
+    HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; Recon/1.0)"}
 
     class _FormParser(HTMLParser):
         def __init__(self):
@@ -481,112 +484,74 @@ def detect_login():
                 })
                 self._form = None
 
+    def _has_login(html_str):
+        p = _FormParser()
+        p.feed(html_str)
+        return any(f["method"] == "post" and
+                   any(i.get("type", "").lower() == "password" for i in f["inputs"])
+                   for f in p.forms)
+
+    def _fetch(url, timeout=10):
+        try:
+            r = req.get(url, headers=HEADERS, timeout=timeout, verify=False, allow_redirects=True)
+            return r.text if r.status_code < 400 else ""
+        except Exception:
+            return ""
+
     try:
-        # Fetch target page with curl (-L follows redirects, -k skip SSL verify)
-        r = subprocess.run(
-            ["curl", "-s", "-L", "-k", "--max-time", "10",
-             "-A", "Mozilla/5.0 (compatible; Recon/1.0)", target],
-            capture_output=True, text=True, timeout=15
-        )
-        if r.returncode != 0 or not r.stdout.strip():
-            return jsonify({"error": f"Seite nicht erreichbar (curl exit={r.returncode}, stderr={r.stderr[:200] if r.stderr else 'none'}, url={target})"})
-        html = r.stdout
+        # Fetch main page
+        html = _fetch(target)
+        if not html:
+            return jsonify({"error": f"Seite nicht erreichbar (url={target})"})
 
-        # Also try /login if no form on main page
-        pages_to_try = [html]
-        p0 = _FormParser()
-        p0.feed(html)
-        has_login_form = any(
-            f["method"] == "post" and
-            any(i.get("type", "").lower() == "password" for i in f["inputs"])
-            for f in p0.forms
-        )
-        if not has_login_form:
-            # If user provided a specific login path, try that first
-            if login_path:
-                lp_url = target.rstrip("/") + login_path if login_path.startswith("/") else login_path
-                try:
-                    r_lp = subprocess.run(
-                        ["curl", "-s", "-L", "--max-time", "8",
-                         "-A", "Mozilla/5.0", "-k", lp_url],
-                        capture_output=True, text=True, timeout=12
-                    )
-                    if r_lp.returncode == 0 and r_lp.stdout.strip():
-                        pages_to_try.append(r_lp.stdout)
-                        p_lp = _FormParser()
-                        p_lp.feed(r_lp.stdout)
-                        if any(f["method"] == "post" and
-                               any(i.get("type", "").lower() == "password" for i in f["inputs"])
-                               for f in p_lp.forms):
-                            has_login_form = True  # skip further search
-                except Exception:
-                    pass
+        pages_to_try = [(target, html)]
+        has_login_form = _has_login(html)
 
+        # If user gave a login path, try that first
+        if not has_login_form and login_path:
+            lp_url = target.rstrip("/") + login_path if login_path.startswith("/") else login_path
+            lp_html = _fetch(lp_url, 8)
+            if lp_html:
+                pages_to_try.append((lp_url, lp_html))
+                if _has_login(lp_html):
+                    has_login_form = True
+
+        # Scan page links + well-known paths
         if not has_login_form:
-            # Scan page for login links (href containing "login", "signin", "auth")
             login_links = re.findall(r'href=["\']([^"\']*(?:login|signin|auth|anmeld)[^"\']*)["\']',
                                      html, re.IGNORECASE)
-            link_paths = []
+            candidate_urls = []
             for lnk in login_links:
                 if lnk.startswith("http"):
-                    link_paths.append(lnk)
+                    candidate_urls.append(lnk)
                 elif lnk.startswith("./"):
-                    link_paths.append(target.rstrip("/") + lnk[1:])
+                    candidate_urls.append(target.rstrip("/") + lnk[1:])
                 elif lnk.startswith("/"):
-                    link_paths.append(target.rstrip("/") + lnk)
+                    candidate_urls.append(target.rstrip("/") + lnk)
                 else:
-                    link_paths.append(target.rstrip("/") + "/" + lnk)
+                    candidate_urls.append(target.rstrip("/") + "/" + lnk)
 
-            # Then: try well-known paths as fallback
-            well_known = ["/login", "/Login.asp", "/login.asp", "/login.html",
-                          "/login.php", "/login.jsp", "/signin", "/auth/login",
-                          "/user/login", "/account/login", "/wp-login.php"]
-            for wk in well_known:
-                link_paths.append(target.rstrip("/") + wk)
+            for wk in ["/login", "/Login.asp", "/login.asp", "/login.html",
+                        "/login.php", "/login.jsp", "/signin", "/auth/login",
+                        "/user/login", "/account/login", "/wp-login.php"]:
+                candidate_urls.append(target.rstrip("/") + wk)
 
-            # Deduplicate, try each
             seen = set()
-            for url in link_paths:
-                url_clean = url.split("?")[0]  # ignore query params for dedup
+            for url in candidate_urls:
+                url_clean = url.split("?")[0]
                 if url_clean in seen:
                     continue
                 seen.add(url_clean)
-                try:
-                    r2 = subprocess.run(
-                        ["curl", "-s", "-L", "-k", "--max-time", "5",
-                         "-A", "Mozilla/5.0", url],
-                        capture_output=True, text=True, timeout=8
-                    )
-                    if r2.returncode == 0 and r2.stdout.strip():
-                        pages_to_try.append(r2.stdout)
-                        # Check immediately — stop early if we found a form
-                        p_check = _FormParser()
-                        p_check.feed(r2.stdout)
-                        if any(f["method"] == "post" and
-                               any(i.get("type", "").lower() == "password" for i in f["inputs"])
-                               for f in p_check.forms):
-                            break
-                except Exception:
-                    pass
+                page_html = _fetch(url, 5)
+                if page_html:
+                    pages_to_try.append((url, page_html))
+                    if _has_login(page_html):
+                        break
 
-        # Parse all fetched pages to find a login form
+        # Find the login form
         login_form = None
-        found_page_url = target  # track which URL had the login form
-        page_urls = [target]  # URLs corresponding to pages_to_try entries
-        # Build URL list for pages added during link/fallback search
-        if not has_login_form and len(pages_to_try) > 1:
-            seen_list = list(seen) if 'seen' in dir() else []
-            # Re-build: first is target, rest are discovered URLs
-            page_urls = [target]
-            idx = 0
-            for url in link_paths:
-                url_clean = url.split("?")[0]
-                if idx >= len(pages_to_try) - 1:
-                    break
-                page_urls.append(url)
-                idx += 1
-
-        for i, page_html in enumerate(pages_to_try):
+        found_page_url = target
+        for page_url, page_html in pages_to_try:
             p = _FormParser()
             p.feed(page_html)
             login_form = next((
@@ -595,12 +560,11 @@ def detect_login():
                 any(i2.get("type", "").lower() == "password" for i2 in f["inputs"])
             ), None)
             if login_form:
-                if i < len(page_urls):
-                    found_page_url = page_urls[i]
+                found_page_url = page_url
                 break
+
         if not login_form:
-            # Check if it's likely a JavaScript SPA
-            main_html = pages_to_try[0] if pages_to_try else ""
+            main_html = pages_to_try[0][1] if pages_to_try else ""
             is_spa = any(k in main_html for k in [
                 'id="app"', 'id="root"', 'id="__next"', 'id="__nuxt"',
                 'ng-app', 'data-reactroot', '<script type="module"',
@@ -609,9 +573,8 @@ def detect_login():
             if is_spa:
                 return jsonify({"error": "Kein HTML-Formular gefunden — die Seite nutzt JavaScript (SPA). "
                                          "Felder manuell ausfüllen: Login-URL, Benutzer-Feld, Passwort-Feld."})
-            n_pages = len(pages_to_try)
-            n_forms = sum(len(_FormParser().forms) for _ in [])  # just count
-            return jsonify({"error": f"Kein Login-Formular gefunden ({n_pages} Seiten geprüft, html={len(main_html)} bytes). Trage die Login-URL ins Feld ein und klicke erneut Auto-Detect."})
+            return jsonify({"error": f"Kein Login-Formular gefunden ({len(pages_to_try)} Seiten geprüft). "
+                                     "Trage die Login-URL ins Feld ein und klicke erneut Auto-Detect."})
 
         # Extract field names
         user_field = pass_field = None
@@ -628,28 +591,23 @@ def detect_login():
             elif t in ("hidden", "submit") and inp.get("value"):
                 extra[n] = inp["value"]
 
-        # Resolve action URL (empty action = same page as form)
+        # Resolve action URL
         action_raw = login_form["action"]
         if not action_raw:
-            # Empty action means POST to the same page where the form was found
             action_path = urlparse(found_page_url).path or "/"
         else:
             action_path = urlparse(urljoin(found_page_url + "/", action_raw)).path
 
-        # Test dummy login with proper session + CSRF handling
-        # Step 1: GET login page with cookies (for CSRF token)
+        # Test dummy login with session (handles cookies + CSRF)
+        session = req.Session()
+        session.headers.update(HEADERS)
         action_url = target.rstrip("/") + action_path
-        cookie_file = "/tmp/recon_detect_cookies.txt"
         login_page_url = target.rstrip("/") + (action_path if action_path != "/" else "/login")
 
-        r_get = subprocess.run(
-            ["curl", "-s", "-L", "-c", cookie_file, "--max-time", "10",
-             "-A", "Mozilla/5.0", "-k", login_page_url],
-            capture_output=True, text=True, timeout=15
-        )
-        # Re-extract CSRF from fresh page (may differ from initial parse)
+        r_get = session.get(login_page_url, timeout=10, verify=False)
+        # Re-extract CSRF token from fresh page
         fresh_csrf = re.search(r'name="([^"]*(?:csrf|token|_token)[^"]*)"[^>]*value="([^"]*)"',
-                               r_get.stdout, re.IGNORECASE)
+                               r_get.text, re.IGNORECASE)
         fresh_extra = dict(extra)
         if fresh_csrf:
             fresh_extra[fresh_csrf.group(1)] = fresh_csrf.group(2)
@@ -657,37 +615,28 @@ def detect_login():
         post_data = {user_field or "user": "dummyxyz_recon", pass_field or "pass": "dummyxyz_recon"}
         post_data.update(fresh_extra)
 
-        # Step 2: POST with cookies + fresh CSRF, follow redirects
-        r3 = subprocess.run(
-            ["curl", "-s", "-L", "-b", cookie_file, "-c", cookie_file,
-             "--max-time", "10", "-A", "Mozilla/5.0", "-k",
-             "-X", "POST", "-d", urlencode(post_data),
-             action_url],
-            capture_output=True, text=True, timeout=15
-        )
-        fail_body = r3.stdout
-
-        # Also get headers-only for redirect detection
-        r3h = subprocess.run(
-            ["curl", "-s", "-i", "-b", cookie_file, "-c", cookie_file,
-             "--max-time", "10", "-A", "Mozilla/5.0", "-k",
-             "-X", "POST", "-d", urlencode(post_data),
-             action_url],
-            capture_output=True, text=True, timeout=15
-        )
-        headers_str = r3h.stdout.split("\r\n\r\n")[0] if "\r\n\r\n" in r3h.stdout else ""
+        # POST dummy login (don't follow redirects to detect redirect-based auth)
+        r3 = session.post(action_url, data=post_data, timeout=10, verify=False,
+                          allow_redirects=False)
         fail_location = ""
         redirect_based = False
-        loc_m = re.search(r"Location:\s*(\S+)", headers_str, re.IGNORECASE)
-        if loc_m:
-            fail_location = loc_m.group(1)
+        if r3.status_code in (301, 302, 303, 307, 308):
+            fail_location = r3.headers.get("Location", "")
             redirect_based = True
+            # Follow redirect to get the error page body
+            try:
+                r3_follow = session.get(
+                    fail_location if fail_location.startswith("http") else target.rstrip("/") + fail_location,
+                    timeout=10, verify=False)
+                fail_body = r3_follow.text
+            except Exception:
+                fail_body = r3.text
+        else:
+            fail_body = r3.text
 
-        # Determine detection mode — always F= with specific error text
+        # Determine detection string
         detect_mode = "F"
         detect_string = ""
-
-        # Search the final page (after redirects) for specific error messages
         fail_lower = fail_body.lower()
         for kw in ["incorrect", "invalid", "wrong password", "wrong username",
                     "failed", "denied", "ungültig", "falsch",
@@ -696,16 +645,13 @@ def detect_login():
                 detect_string = kw
                 break
 
-        # Fallback: if still no detect string, try broader patterns
         if not detect_string:
-            # Look for alert/error CSS classes with text
             alert_m = re.search(r'class="[^"]*(?:alert|error|danger)[^"]*"[^>]*>(?:<[^>]*>)*\s*([^<]+)',
                                 fail_body, re.IGNORECASE)
             if alert_m:
                 detect_string = alert_m.group(1).strip()[:40]
 
         if not detect_string:
-            # Last resort: use type="password" (login page has it, success page doesn't)
             if 'type="password"' in fail_body:
                 detect_string = 'type="password"'
 
