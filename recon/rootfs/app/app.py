@@ -62,10 +62,35 @@ PROTO_HINTS = {
 }
 
 
+def _terminate(process):
+    """Kill a running subprocess (and its process group) cleanly."""
+    if not process or process.poll() is not None:
+        return
+    import signal
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+    except Exception:
+        try:
+            process.terminate()
+        except Exception:
+            return
+    try:
+        process.wait(timeout=3)
+    except Exception:
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+
 def run_streaming(cmd):
     """Run a command and stream output line by line via SSE with keepalive."""
     def generate():
         import select as sel
+        process = None
         yield f"data: [CMD] {' '.join(cmd)}\n\n"
         try:
             process = subprocess.Popen(
@@ -73,7 +98,8 @@ def run_streaming(cmd):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1
+                bufsize=1,
+                start_new_session=True,  # own process group → clean kill of children
             )
             fd = process.stdout.fileno()
             while True:
@@ -95,6 +121,9 @@ def run_streaming(cmd):
             yield f"data: [ERROR] Befehl nicht gefunden: {cmd[0]}\n\n"
         except Exception as e:
             yield f"data: [ERROR] {str(e)}\n\n"
+        finally:
+            # Client disconnect (Stop button) raises GeneratorExit here → kill the process
+            _terminate(process)
 
     return Response(
         stream_with_context(generate()),
@@ -103,7 +132,7 @@ def run_streaming(cmd):
     )
 
 
-ADDON_VERSION = "1.5.5"
+ADDON_VERSION = "1.5.6"
 
 @app.route("/")
 def index():
@@ -190,6 +219,26 @@ def get_interfaces():
         return jsonify({"interfaces": ifaces})
     except Exception as e:
         return jsonify({"interfaces": [], "error": str(e)})
+
+
+_VALID_IFACE_RE = re.compile(r'^[a-zA-Z0-9_\-\.]{1,32}$')
+
+
+@app.route("/wlan/monitor")
+def wlan_monitor():
+    """Enable/disable monitor mode via airmon-ng (streamed)."""
+    iface  = request.args.get("iface", "wlan0").strip()
+    enable = request.args.get("enable", "1").strip()
+    if not _VALID_IFACE_RE.match(iface):
+        return Response("data: [ERROR] Ungültiges Interface\n\n", mimetype="text/event-stream")
+    if not shutil.which("airmon-ng"):
+        return Response("data: [ERROR] airmon-ng nicht gefunden (aircrack-ng nötig)\n\n",
+                        mimetype="text/event-stream")
+    action = "start" if enable == "1" else "stop"
+    # airmon-ng check kill stops interfering processes before enabling monitor mode
+    if action == "start":
+        subprocess.run(["airmon-ng", "check", "kill"], capture_output=True)
+    return run_streaming(["airmon-ng", action, iface])
 
 
 # ── Wordlists ──────────────────────────────────────────────────────────────────
@@ -880,6 +929,7 @@ def scan_brute():
 
     def generate():
         import select as sel
+        process = None
         yield f"data: [CMD] {' '.join(cmd)}\n\n"
         try:
             process = subprocess.Popen(
@@ -888,6 +938,7 @@ def scan_brute():
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                start_new_session=True,
             )
             fd = process.stdout.fileno()
             while True:
@@ -910,6 +961,7 @@ def scan_brute():
         except Exception as e:
             yield f"data: [ERROR] {e}\n\n"
         finally:
+            _terminate(process)
             for f in tmp_files:
                 try: os.unlink(f)
                 except: pass

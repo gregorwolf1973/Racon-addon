@@ -217,9 +217,58 @@
   .signal-bar .b:nth-child(2) { height: 7px; }
   .signal-bar .b:nth-child(3) { height: 10px; }
   .signal-bar .b:nth-child(4) { height: 14px; }
+
+  /* ── Global target bar ── */
+  .ha-global-target { display: flex; align-items: center; gap: 10px; background: var(--ha-card);
+    border: 1px solid var(--ha-border); border-radius: 10px; padding: 8px 12px; flex-shrink: 0; flex-wrap: wrap; }
+  .ha-global-target .ha-label { white-space: nowrap; }
+  .ha-global-target .ha-input { flex: 1; min-width: 200px; }
+  .ha-btn-recon { background: linear-gradient(135deg,#03a9f4,#7b1fa2); color:#fff; font-weight:600; }
+  .ha-btn-recon:hover { filter: brightness(1.1); }
+
+  /* ── Authorization gate ── */
+  .gate-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999;
+    display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .gate-box { background: var(--ha-card); border: 1px solid var(--ha-error); border-radius: 14px;
+    padding: 28px; max-width: 460px; text-align: center; }
+  .gate-box h2 { font-size: 18px; margin-bottom: 12px; color: var(--ha-warning); }
+  .gate-box p { font-size: 13px; color: var(--ha-text-dim); line-height: 1.6; margin-bottom: 18px; }
+  .gate-box .gate-actions { display: flex; gap: 10px; justify-content: center; }
+
+  /* Advanced (collapsible) */
+  .adv-toggle { background:none; border:none; color:var(--ha-accent); font-size:12px; cursor:pointer;
+    padding:4px 0; display:inline-flex; align-items:center; gap:5px; }
+  .adv-toggle:hover { text-decoration: underline; }
+
+  /* ── Responsive (HA mobile app) ── */
+  @media (max-width: 760px) {
+    .ha-main { height: auto; }
+    .ha-header-badges { display: none; }
+    .ha-tabs { width: 100%; overflow-x: auto; }
+    .ha-tab { padding: 8px 12px; }
+    .split-area { flex-direction: column; }
+    .results-panel { width: 100%; max-height: 50vh; }
+    .ha-terminal-card { min-height: 240px; }
+    .ha-form-row { flex-direction: column; align-items: stretch; }
+    .ha-form-group { width: 100%; }
+    .ha-input, .ha-select { width: 100%; max-width: none !important; min-width: 0 !important; }
+  }
 </style>
 </head>
 <body>
+
+<!-- Authorization gate -->
+<div class="gate-overlay" id="auth-gate" style="display:none">
+  <div class="gate-box">
+    <h2>⚠ Nur für autorisierte Nutzung</h2>
+    <p>Recon führt aktive Scans und Angriffe (Portscan, Brute-Force, Vuln-Scan) aus.
+       Setze diese Werkzeuge <strong>ausschließlich</strong> gegen Systeme ein, für die du eine
+       ausdrückliche Erlaubnis hast. Unbefugtes Scannen/Angreifen ist strafbar.</p>
+    <div class="gate-actions">
+      <button class="ha-btn ha-btn-primary" onclick="acceptGate()">Ich bin berechtigt</button>
+    </div>
+  </div>
+</div>
 
 <!-- Header -->
 <div class="ha-header">
@@ -237,6 +286,22 @@
 </div>
 
 <div class="ha-main">
+
+  <!-- Global target bar -->
+  <div class="ha-global-target">
+    <label class="ha-label" for="global-target">🎯 Ziel</label>
+    <input class="ha-input" id="global-target" type="text"
+      placeholder="192.168.1.1  ·  hostname  ·  10.0.0.0/24"
+      aria-label="Globales Ziel für alle Tabs"
+      oninput="syncGlobalTarget(this.value)"
+      onkeydown="if(event.key==='Enter') autoRecon()" />
+    <button class="ha-btn ha-btn-recon" id="auto-recon-btn" onclick="autoRecon()"
+      aria-label="Automatischen Recon starten" title="Portscan → automatisch Web-Scan + Angriffs-Vorschläge">
+      🚀 Auto-Recon
+    </button>
+    <button class="ha-btn ha-btn-danger" id="auto-recon-stop" style="display:none"
+      onclick="stopScan('ip')" aria-label="Auto-Recon stoppen">■ Stop</button>
+  </div>
 
   <div class="ha-tabs">
     <button class="ha-tab active" onclick="switchTab('ip',this)">🔍 IP / Port Scanner</button>
@@ -301,8 +366,12 @@
               <div class="pulse-dot"></div> Scanning…
             </div>
           </div>
-          <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
-            onclick="clearAll()">Leeren</button>
+          <div style="display:flex;gap:6px">
+            <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+              onclick="copyOutput('ip-output',this)" aria-label="Ausgabe kopieren">⧉ Kopieren</button>
+            <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+              onclick="clearAll()">Leeren</button>
+          </div>
         </div>
         <div class="ha-terminal-body" id="ip-output"><span class="tl tl-dim">Bereit — Ziel eingeben und Scan starten.</span>
 </div>
@@ -360,6 +429,11 @@
           <input class="ha-input" id="brute-path" type="text" placeholder="/" style="min-width:100px;max-width:160px" />
         </div>
         <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="adv-toggle" type="button" onclick="toggleAdvBrute(this)"
+            aria-label="Erweiterte Optionen umschalten">⚙ Erweitert ▾</button>
+        </div>
+        <div class="ha-form-group brute-adv" style="display:none">
           <label class="ha-label">Tasks</label>
           <select class="ha-select" id="brute-tasks" style="min-width:80px;max-width:110px">
             <option value="">Auto</option>
@@ -369,7 +443,7 @@
             <option value="8">8</option>
           </select>
         </div>
-        <div class="ha-form-group">
+        <div class="ha-form-group brute-adv" style="display:none">
           <label class="ha-label">
             Wartezeit (ms)
             <span class="wl-hint-badge" id="wait-hint-badge" title="">ⓘ</span>
@@ -516,8 +590,12 @@
               <div class="pulse-dot"></div> Läuft…
             </div>
           </div>
-          <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
-            onclick="clearBrute()">Leeren</button>
+          <div style="display:flex;gap:6px">
+            <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+              onclick="copyOutput('brute-output',this)" aria-label="Ausgabe kopieren">⧉ Kopieren</button>
+            <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+              onclick="clearBrute()">Leeren</button>
+          </div>
         </div>
         <div class="ha-terminal-body" id="brute-output"><span class="tl tl-dim">Bereit — Ziel und Zugangsdaten eingeben, dann Angriff starten.</span>
 </div>
@@ -545,7 +623,8 @@
         <div class="ha-form-group">
           <label class="ha-label">Ziel (IP / Hostname)</label>
           <input class="ha-input" id="nikto-target" type="text"
-            placeholder="192.168.1.1" style="min-width:220px" />
+            placeholder="192.168.1.1" style="min-width:220px"
+            onkeydown="if(event.key==='Enter') startNikto()" />
         </div>
         <div class="ha-form-group">
           <label class="ha-label">Port (opt.)</label>
@@ -581,7 +660,8 @@
         <div class="ha-form-group">
           <label class="ha-label">Ziel-URL (FUZZ = Platzhalter)</label>
           <input class="ha-input" id="ffuf-target" type="text"
-            placeholder="http://192.168.1.1/FUZZ" style="min-width:300px" />
+            placeholder="http://192.168.1.1/FUZZ" style="min-width:300px"
+            onkeydown="if(event.key==='Enter') startFfuf()" />
         </div>
         <div class="ha-form-group">
           <label class="ha-label">Wordlist</label>
@@ -629,8 +709,12 @@
               <div class="pulse-dot"></div> Läuft…
             </div>
           </div>
-          <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
-            onclick="clearWeb()">Leeren</button>
+          <div style="display:flex;gap:6px">
+            <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+              onclick="copyOutput('web-output',this)" aria-label="Ausgabe kopieren">⧉ Kopieren</button>
+            <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+              onclick="clearWeb()">Leeren</button>
+          </div>
         </div>
         <div class="ha-terminal-body" id="web-output"><span class="tl tl-dim">Nikto oder ffuf starten…</span>
 </div>
@@ -666,6 +750,13 @@
             {% if has_airodump %}<option value="airodump" id="opt-airodump">airodump-ng</option>{% endif %}
           </select>
         </div>
+        {% if has_airodump %}
+        <div class="ha-form-group">
+          <label class="ha-label">&nbsp;</label>
+          <button class="ha-btn ha-btn-ghost" id="wlan-monitor-btn" onclick="toggleMonitor()"
+            aria-label="Monitor-Modus umschalten" title="airmon-ng start/stop">📡 Monitor an</button>
+        </div>
+        {% endif %}
         <div class="ha-form-group">
           <label class="ha-label">&nbsp;</label>
           <button class="ha-btn ha-btn-primary" id="wlan-start-btn" onclick="startWlanScan()">▶ Starten</button>
@@ -690,8 +781,12 @@
               <div class="pulse-dot"></div> Scanning…
             </div>
           </div>
-          <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
-            onclick="clearWlan()">Leeren</button>
+          <div style="display:flex;gap:6px">
+            <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+              onclick="copyOutput('wlan-output',this)" aria-label="Ausgabe kopieren">⧉ Kopieren</button>
+            <button class="ha-btn ha-btn-ghost" style="height:30px;font-size:12px;padding:0 12px"
+              onclick="clearWlan()">Leeren</button>
+          </div>
         </div>
         <div class="ha-terminal-body" id="wlan-output"><span class="tl tl-dim">Bereit — Interface wählen und Scan starten.</span>
 </div>
@@ -718,8 +813,114 @@ const streams = {};
 function switchTab(name, btn) {
   document.querySelectorAll('.ha-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.ha-panel').forEach(p => p.classList.remove('active'));
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
+  else {
+    const tab = [...document.querySelectorAll('.ha-tab')]
+      .find(t => (t.getAttribute('onclick') || '').includes(`'${name}'`));
+    if (tab) tab.classList.add('active');
+  }
   document.getElementById('tab-' + name).classList.add('active');
+}
+
+// ── Authorization gate ─────────────────────────────────────────
+function acceptGate() {
+  localStorage.setItem('recon_authorized', '1');
+  document.getElementById('auth-gate').style.display = 'none';
+}
+
+// ── Global target sync ─────────────────────────────────────────
+function syncGlobalTarget(v) {
+  v = (v || '').trim();
+  ['ip-target', 'brute-target', 'nikto-target'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = v;
+  });
+  const ffuf = document.getElementById('ffuf-target');
+  if (ffuf && v) ffuf.value = `http://${v}/FUZZ`;
+}
+
+// ── Copy terminal output ───────────────────────────────────────
+function copyOutput(id, btn) {
+  const text = document.getElementById(id).innerText;
+  const done = () => { const o = btn.textContent; btn.textContent = '✓ Kopiert'; setTimeout(() => btn.textContent = o, 1500); };
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  else fallbackCopy(text, done);
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text; document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); } catch (e) {}
+  ta.remove(); done();
+}
+
+// ── Advanced brute options toggle ──────────────────────────────
+function toggleAdvBrute(btn) {
+  const adv = document.querySelectorAll('.brute-adv');
+  const show = adv.length && adv[0].style.display === 'none';
+  adv.forEach(e => e.style.display = show ? '' : 'none');
+  btn.textContent = show ? '⚙ Erweitert ▴' : '⚙ Erweitert ▾';
+}
+
+// ── WLAN monitor mode ──────────────────────────────────────────
+let monitorOn = false;
+function toggleMonitor() {
+  const iface = document.getElementById('wlan-iface').value.trim() || 'wlan0';
+  const enable = monitorOn ? '0' : '1';
+  const btn = document.getElementById('wlan-monitor-btn');
+  appendLine('wlan', `▶ Monitor-Modus ${enable === '1' ? 'aktivieren' : 'deaktivieren'} (${iface})`, 'tl-info');
+  startStream('wlan', `/wlan/monitor?iface=${encodeURIComponent(iface)}&enable=${enable}`, null, () => {
+    monitorOn = !monitorOn;
+    btn.textContent = monitorOn ? '📡 Monitor aus' : '📡 Monitor an';
+    fetch(BASE + '/interfaces').then(r => r.json()).then(d => {
+      if (!monitorOn) return;
+      const mon = (d.interfaces || []).find(i => (i.name || '').includes('mon'));
+      if (mon) document.getElementById('wlan-iface').value = mon.name;
+      const opt = document.getElementById('opt-airodump');
+      if (opt) { opt.disabled = false; opt.textContent = 'airodump-ng'; }
+      const toolSel = document.getElementById('wlan-tool');
+      if (toolSel) toolSel.value = 'airodump';
+    }).catch(() => {});
+  });
+}
+
+// ── Auto-Recon pipeline ────────────────────────────────────────
+function autoRecon() {
+  const target = document.getElementById('global-target').value.trim();
+  if (!target) { document.getElementById('global-target').focus(); return; }
+  syncGlobalTarget(target);
+  switchTab('ip');
+  document.getElementById('ip-scanner').value = 'nmap';
+  onScannerChange();
+  document.getElementById('ip-profile').value = 'service';
+  clearAll();
+  appendLine('ip', `🚀 Auto-Recon → ${target}  (Nmap Service-Scan)`, 'tl-info');
+  const path = `/scan/nmap?target=${encodeURIComponent(target)}&profile=service`;
+  startStream('ip', path, null, (lines) => {
+    renderNmapResults(lines);
+    autoReconFollowup(lines, target);
+  });
+}
+
+function autoReconFollowup(lines, target) {
+  const hosts = nmapParseLines(lines);
+  const open = [];
+  hosts.forEach(h => h.ports.filter(p => p.state === 'open').forEach(p => open.push(p)));
+  if (!open.length) { appendLine('ip', '[Auto-Recon] Keine offenen Ports gefunden.', 'tl-warn'); return; }
+
+  const webPort   = open.find(p => serviceToWebTool(p.service, p.port));
+  const brutePorts = open.filter(p => serviceToHydraProto(p.service, p.port));
+
+  appendLine('ip', `[Auto-Recon] ${open.length} offene Ports · Web: ${webPort ? webPort.port : '–'} · `
+    + `Angreifbar: ${brutePorts.map(p => p.port).join(', ') || '–'}`, 'tl-ok');
+
+  if (webPort) {
+    const tool = serviceToWebTool(webPort.service, webPort.port);
+    appendLine('ip', `[Auto-Recon] Starte Nikto automatisch auf Port ${webPort.port}…`, 'tl-info');
+    launchWeb(target, webPort.port, tool, true);   // autostart = true (non-destructive)
+  } else if (brutePorts.length) {
+    appendLine('ip', `[Auto-Recon] Login-Dienste gefunden — 🔐 in der Port-Tabelle klicken, um einen Angriff vorzubereiten.`, 'tl-info');
+  }
 }
 
 // ── Terminal helpers ───────────────────────────────────────────
@@ -753,6 +954,12 @@ function setScanning(id, active) {
   document.getElementById(id + '-scanning').classList.toggle('active', active);
   document.getElementById(id + '-start-btn').style.display = active ? 'none' : '';
   document.getElementById(id + '-stop-btn').style.display  = active ? '' : 'none';
+  if (id === 'ip') {
+    const arBtn  = document.getElementById('auto-recon-btn');
+    const arStop = document.getElementById('auto-recon-stop');
+    if (arBtn)  arBtn.style.display  = active ? 'none' : '';
+    if (arStop) arStop.style.display = active ? '' : 'none';
+  }
 }
 
 function stopScan(id) {
@@ -918,11 +1125,11 @@ function renderNmapResults(lines) {
         let actionBtns = '';
         if (hydraProto) {
           actionBtns += `<button class="port-attack-btn" title="Brute Force starten"
-            onclick="launchBrute('${target}','${p.port}','${hydraProto}')">🔐</button>`;
+            aria-label="Brute-Force vorbereiten" onclick="launchBrute('${target}','${p.port}','${hydraProto}')">🔐</button>`;
         }
         if (webTool) {
           actionBtns += `<button class="port-attack-btn" title="Web Scan starten"
-            onclick="launchWeb('${target}','${p.port}','${webTool}')">🌐</button>`;
+            aria-label="Web-Scan starten" onclick="launchWeb('${target}','${p.port}','${webTool}',true)">🌐</button>`;
         }
 
         html += `<tr>
@@ -1719,7 +1926,7 @@ function launchBrute(target, port, protocol) {
   setTimeout(() => { flash.style.opacity = '0'; setTimeout(() => flash.remove(), 500); }, 2500);
 }
 
-function launchWeb(target, port, mode) {
+function launchWeb(target, port, mode, autostart) {
   // Switch to Web Tools tab
   document.querySelectorAll('.ha-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.ha-panel').forEach(p => p.classList.remove('active'));
@@ -1737,12 +1944,18 @@ function launchWeb(target, port, mode) {
   const flash = document.createElement('div');
   flash.style.cssText = 'position:fixed;top:70px;right:16px;background:#0288d1;color:#fff;' +
     'padding:10px 18px;border-radius:8px;font-size:13px;z-index:999;transition:opacity 0.5s';
-  flash.textContent = `🌐 Eingestellt: ${proto}://${target}:${port}`;
+  flash.textContent = `🌐 ${autostart ? 'Scanne' : 'Eingestellt'}: ${proto}://${target}:${port}`;
   document.body.appendChild(flash);
   setTimeout(() => { flash.style.opacity = '0'; setTimeout(() => flash.remove(), 500); }, 2500);
+
+  // Non-destructive → start Nikto automatically
+  if (autostart) startNikto();
 }
 
 // ── Startup ───────────────────────────────────────────────────
+if (localStorage.getItem('recon_authorized') !== '1')
+  document.getElementById('auth-gate').style.display = 'flex';
+
 loadWordlists();
 
 // ── Interface auto-detect ─────────────────────────────────────
