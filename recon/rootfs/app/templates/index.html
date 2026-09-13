@@ -924,6 +924,14 @@ function autoReconFollowup(lines, target) {
 }
 
 // ── Terminal helpers ───────────────────────────────────────────
+// Escape values derived from scan output (host banners, SSIDs, …) before
+// inserting them into innerHTML, to prevent DOM-based XSS.
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
 function appendLine(id, text, cls) {
   const body = document.getElementById(id + '-output');
   const span = document.createElement('span');
@@ -1103,7 +1111,7 @@ function renderNmapResults(lines) {
     for (const [k, v, cls] of rows) {
       html += `<div class="res-row">
         <span class="res-key">${k}</span>
-        <span class="res-val ${cls||''}">${v}</span>
+        <span class="res-val ${cls||''}">${esc(v)}</span>
       </div>`;
     }
     html += `</div>`;
@@ -1134,8 +1142,8 @@ function renderNmapResults(lines) {
 
         html += `<tr>
           <td><span class="port-num">${p.port}</span><span style="color:var(--ha-text-dim);font-size:10px">/${p.proto}</span></td>
-          <td class="port-service">${p.service}</td>
-          <td class="port-version">${ver}</td>
+          <td class="port-service">${esc(p.service)}</td>
+          <td class="port-version">${esc(ver)}</td>
           <td style="white-space:nowrap">${actionBtns}</td>
         </tr>`;
       }
@@ -1213,14 +1221,14 @@ function renderWlanResults(lines) {
     const ghz = n.freq ? (parseInt(n.freq) > 3000 ? '5 GHz' : '2.4 GHz') : '';
     html += `<div class="wlan-net">
       <div class="wlan-ssid">
-        ${n.ssid || '<em style="opacity:0.5">Hidden</em>'}
+        ${n.ssid ? esc(n.ssid) : '<em style="opacity:0.5">Hidden</em>'}
         <span class="wlan-enc ${encClass}">${encLabel}</span>
       </div>
       <div class="wlan-meta">
         ${n.signal ? `<span>${signalBars(n.signal)} <span class="val">${n.signal} dBm</span></span>` : ''}
         ${n.channel ? `<span>CH <span class="val">${n.channel}</span></span>` : ''}
         ${ghz ? `<span><span class="val">${ghz}</span></span>` : ''}
-        <span style="font-size:10px;opacity:0.5">${n.bssid}</span>
+        <span style="font-size:10px;opacity:0.5">${esc(n.bssid)}</span>
       </div>
     </div>`;
   }
@@ -1737,10 +1745,10 @@ function renderBruteResults(creds) {
       <span style="color:var(--ha-accent);margin-left:6px">${creds.length}</span></div>`;
   for (const c of creds) {
     html += `<div class="wlan-net" style="border-color:rgba(123,31,162,0.4)">
-      <div class="wlan-ssid" style="color:#ce93d8">${c.proto}://${c.host}:${c.port}</div>
+      <div class="wlan-ssid" style="color:#ce93d8">${esc(c.proto)}://${esc(c.host)}:${esc(c.port)}</div>
       <div class="wlan-meta">
-        <span>User: <span class="val" style="color:var(--ha-success)">${c.login}</span></span>
-        <span>Pass: <span class="val" style="color:var(--ha-success)">${c.pass}</span></span>
+        <span>User: <span class="val" style="color:var(--ha-success)">${esc(c.login)}</span></span>
+        <span>Pass: <span class="val" style="color:var(--ha-success)">${esc(c.pass)}</span></span>
       </div>
     </div>`;
   }
