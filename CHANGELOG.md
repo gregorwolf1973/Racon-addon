@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.10
+
+- Doku: Die Add-on-Beschreibung nannte "RustScan", obwohl RustScan nicht
+  installiert ist (das Dockerfile bringt nur nmap, iw, aircrack-ng u. a. mit).
+  Der Fast-Scan-Endpunkt `/scan/rustscan` fuehrt tatsaechlich nmap aus
+  (`nmap -T4 --open -p- --min-rate 5000`). Die Beschreibung nennt jetzt nur
+  noch nmap.
+
 ## 1.5.9
 
 - Sicherheit: Scan-Ergebnisse werden vor der Anzeige maskiert. Servicebanner,
