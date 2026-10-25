@@ -1,6 +1,6 @@
 # Recon – Home Assistant Add-on
 
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/gregorwolf1973)
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/gregorwolf1973) [![Donate using Liberapay](https://liberapay.com/assets/widgets/donate.svg)](https://liberapay.com/Gregor_Wolf/donate)
 
 Netzwerk-, IP- und WLAN-Scanner für Home Assistant OS. Das Add-on bündelt
 gängige Recon-Werkzeuge hinter einer Weboberfläche, die über Home Assistant
@@ -42,4 +42,4 @@ Ingress in der Seitenleiste geöffnet wird.
 
 Wenn dir dieses Add-on hilft, freue ich mich über einen Kaffee:
 
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/gregorwolf1973)
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/gregorwolf1973) [![Donate using Liberapay](https://liberapay.com/assets/widgets/donate.svg)](https://liberapay.com/Gregor_Wolf/donate)
