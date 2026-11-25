@@ -1,6 +1,7 @@
 name: "Recon"
 description: "Network Scanner - IP/Port scanning with Nmap, WLAN scanning with iw"
-version: "1.5.10"
+version: "1.5.11"
+image: ghcr.io/gregorwolf1973/{arch}-addon-recon
 url: "https://github.com/gregorwolf1973/Racon-addon"
 slug: "recon"
 init: false
